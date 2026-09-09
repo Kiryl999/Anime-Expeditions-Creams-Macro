@@ -2,6 +2,15 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.8] - 2026-09-09
+
+### New
+- **Auto Fishing**: fish passively while a round runs. Turn it on per task, pick the spot on the water to cast at, and set how often to cast (6s by default -- a bite takes 6-12s and an extra click never cancels a cast). The rod is taken out once per round and only when the fishing XP bar says it is not already out, since that button toggles. Casting stops when the round does, and never happens in the same moment as a unit placement or a portal pick, so it cannot drop a unit in the water or steal the post-round portal choice. Needs two crops captured once: `fishing_rod` (the button, bottom-left) and `fishing_xp` (the XP bar, bottom-right). It does **not** move your character -- park it at the water with a Walk Path block in the Macro Operation, which also re-runs after a Challenge interleave.
+- Settings kept per task on purpose, so the same Macro Operation can be reused across maps while only one of them fishes.
+
+### Fixed
+- **The post-round portal choice now works out of the box**: v0.21.7 added it but shipped no reference image, so it did nothing until one was captured. The crop is included.
+
 ## [0.21.7] - 2026-09-09
 
 ### New
