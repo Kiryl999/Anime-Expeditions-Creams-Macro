@@ -329,6 +329,23 @@ CLOSE_POPUP_RAID_STAGE = "3"
 # already waits MATCH_RESULT_POLL_INTERVAL between ticks.
 CLOSE_POPUP_VERIFY_DELAY = 0.45
 
+# A won portal round offers three NEW portals for about 20s before the
+# Victory screen renders. Left alone the timer runs out and the game picks
+# one at random, so the choice is watched for from inside the match poll
+# loop -- after the result there is nothing left to choose.
+#
+# Same shape as Expedition's "select upgrade card" (see
+# runner._dismiss_reward_card_if_found): one image that is only on screen
+# while the offer is up, then a click in the middle of the screen, which is
+# the middle card. Nothing here reads the three portals or their difficulty
+# -- the middle one is simply what gets taken.
+#
+# No crop ships for this: capture the offer's own heading/timer (something
+# that is NOT on screen at any other moment) under this name via
+# Settings > General > Image Manager. Without it the search reports the
+# image as missing once and the offer is left to time out, exactly as before.
+PORTAL_OFFER_IMAGE = "portal_offer"
+
 # Event mode: reached straight from the lobby via its own nav_event button
 # (NOT through Play like Story/Raid/Expedition/Challenge), then the Summer
 # event's nav entry, then its gamemode card, then one of the event kind cards.

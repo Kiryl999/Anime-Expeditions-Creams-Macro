@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [Unreleased]
+
+### New
+- **Portal runs take the middle portal instead of letting the timer decide**: a won portal round offers three new portals for about 20 seconds before the Victory screen appears, and picks one at random when that runs out. The offer is now watched for from inside the match -- after the result there is nothing left to choose -- and taken with a middle-of-screen click, which is the middle card. This is the same mechanism Expedition already uses for its "select an upgrade!" cards. It needs one crop you capture yourself: something visible **only** while the offer is up (its heading or countdown), saved as `portal_offer` under Settings > General > Image Manager. Without it nothing changes and the offer times out as before. One attempt per round, because the Victory screen's unit portraits sit near that same spot.
+
 ## [0.21.6] - 2026-09-09
 
 ### Fixed

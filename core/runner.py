@@ -157,6 +157,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # picked. Together they let Wait for Wave release on a gamemode that
         # has no wave counter -- see WAIT_WAVE_NO_COUNTER_SETTLE.
         self._is_expedition_match = False
+        # One portal offer per match (see _take_portal_offer_if_found). The
+        # offer is taken with a middle-of-screen click, and the Victory screen
+        # that follows has clickable unit portraits right about there -- a
+        # stray click on those is what _clear_result_obtainment_modal exists
+        # to undo. So it fires once and then stops looking.
+        self._portal_offer_taken = False
         # Proof the battle is genuinely under way (cards drop for kills), and
         # the quiet-period clock the deferred placements wait on. Anything
         # that disrupts the board -- a card, a mid-run Start Game -- restarts
@@ -670,6 +676,41 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._last_board_disruption_at = self._last_reward_card_at
         left, top, _, _ = wm.get_window_rect_screen(hwnd)
         self._mouse.click(left + self._coords["screen_middle_x"], top + self._coords["screen_middle_y"])
+        return True
+
+    def _take_portal_offer_if_found(self, hwnd) -> bool:
+        """Take the middle portal when the post-round offer is up.
+
+        A won portal round puts up three new portals for ~20s BEFORE the
+        Victory screen renders, and picks one at random if the timer runs out
+        -- so this is checked from inside the match poll loop, not after the
+        result, where the offer is already gone.
+
+        Deliberately the same shape as _dismiss_reward_card_if_found, which
+        solves the identical problem for Expedition's "select an upgrade!"
+        cards: one image that is only on screen while the choice is up, then
+        a click in the middle of the screen, which lands on the middle card.
+        The three portals differ in difficulty; this does not read that, it
+        just always takes the middle one.
+
+        Returns whether an offer was actually seen, so a caller can tell
+        "took it" from "nothing there".
+        """
+        try:
+            match = vision.find_image(hwnd, PORTAL_OFFER_IMAGE)
+        except vision.TemplateNotFound:
+            return False
+        if match is None:
+            return False
+        debug_path = self._debug_save(hwnd, PORTAL_OFFER_IMAGE, match)
+        suffix = f" Debug: {debug_path}" if debug_path else ""
+        self._log(f'[Macro] Portal choice is up (score {match["score"]:.2f}) -- taking the middle one.{suffix}')
+        if not wm.activate_window(hwnd):
+            self._log("[Macro] Couldn't confirm focus before taking the portal -- "
+                      "the click may not register.")
+        left, top, _, _ = wm.get_window_rect_screen(hwnd)
+        self._mouse.shuffle_click(left + self._coords["screen_middle_x"],
+                                  top + self._coords["screen_middle_y"])
         return True
 
     def _clear_result_obtainment_modal(self, hwnd, stop_event: threading.Event = None) -> bool:
@@ -1767,6 +1808,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._battle_started_at = time.time()
         self._battle_leave_requested = False
         self._is_expedition_match = task.get("mode") == "expedition"
+        self._portal_offer_taken = False   # fresh match, fresh offer
         self._wave_region = EXPEDITION_WAVE_REGION if self._is_expedition_match else WAVE_REGION
         self._last_reward_card_at = 0.0
         self._last_board_disruption_at = 0.0
@@ -1804,6 +1846,18 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         return self._wait_for_match_result(hwnd, stop_event, battle_blocks, first_repeat, task.get("macro"),
                                              task.get("mode"), watch_close_popup, webhook, task)
 
+
+    @staticmethod
+    def _wants_portal_offer_watch(task: dict) -> bool:
+        """Whether this task can be offered three new portals mid-run.
+
+        Both portal lead-ins can: the Portals mode (Inventory) and the Summer
+        event's Portal kind. Nothing else, so nothing else pays the search.
+        """
+        mode = task.get("mode")
+        if mode == "portals":
+            return True
+        return mode == "event" and str(task.get("stage")) == "portal"
 
     @staticmethod
     def _wants_close_popup_watch(task: dict) -> bool:
@@ -1928,6 +1982,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                                  first_repeat: bool = True, macro_name: str = None, mode: str = None,
                                  watch_close_popup: bool = False, webhook: dict = None, task: dict = None) -> str:
         self._log("[Macro] Battle in progress -- watching for Victory/Defeat...")
+        watch_portal_offer = self._wants_portal_offer_watch(task or {})
         self._set_status(action="Battle in progress...")
         battle_blocks = battle_blocks or []
         infinite_wave_limit = self._infinite_wave_limit(task)
@@ -2032,6 +2087,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
             if watch_close_popup:
                 self._click_close_popup_if_found(hwnd)
+
+            # The three-portal offer opens BEFORE the Victory screen and takes
+            # itself away after ~20s, picking at random -- so it has to be
+            # caught here, mid-poll, not after the result (see
+            # _take_portal_offer_if_found).
+            if watch_portal_offer and not self._portal_offer_taken:
+                if self._take_portal_offer_if_found(hwnd):
+                    self._portal_offer_taken = True
 
             if mode == "expedition":
                 # An encounter node parks the client where no result can come
