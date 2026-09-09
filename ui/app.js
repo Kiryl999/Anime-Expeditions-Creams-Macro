@@ -2228,6 +2228,7 @@ let selectedTaskId = null;
 let enteringTaskIds = new Set();
 let taskTemplates = [];  // Macro Manager template names, for the Macro Operation picker
 let taskSaveTimer = null;
+const DEFAULT_FISHING_INTERVAL = 6;   // seconds between casts -- mirrors FISHING_CLICK_INTERVAL
 const DEFAULT_INFINITE_WAVE_LIMIT = 20;
 const MAX_EXTRACT_AFTER = 9999;
 
@@ -2242,6 +2243,11 @@ function defaultTask() {
     infinite_wave_limit: DEFAULT_INFINITE_WAVE_LIMIT,
     extract_after: '1',
     repeat: 1, team: '', equipment: 'include', play_mode: 'solo', macro: '',
+    // Auto Fishing is per TASK, not a global coordinate: where the water is
+    // depends on where the character was parked, so two tasks on two maps
+    // carry two points. Off until a point is picked.
+    fishing: false, fishing_x: null, fishing_y: null,
+    fishing_interval: DEFAULT_FISHING_INTERVAL,
   };
 }
 
@@ -2933,6 +2939,30 @@ function renderTaskBuilder() {
     ? 'Macro Operation (Must be Autoplay)' : 'Macro Operation';
   fields.push(field(macroLabel, macroSel, 'Select a pre-start placement macro template'));
 
+  // Auto Fishing. Offered on every mode -- fishing is a map property, not a
+  // mode one, and the same water point can be wanted on any map that has
+  // water. Off by default, so a task that does not want it shows one toggle
+  // and nothing else.
+  fields.push(field('Auto Fishing',
+    `<button class="task-toggle ${t.fishing ? 'on' : ''}"
+       onclick="setTaskProp('${t.id}', 'fishing', !${!!t.fishing}); renderTaskBuilder();"
+       data-tooltip="Cast at a fixed spot on a timer while the round runs">${t.fishing ? 'On' : 'Off'}</button>`,
+    'Fish passively during the round -- position your character yourself (Walk Path block)'));
+  if (t.fishing) {
+    const pt = (t.fishing_x != null && t.fishing_y != null) ? `X ${t.fishing_x}, Y ${t.fishing_y}` : 'Not set';
+    fields.push(field('Water Point',
+      `<div class="flex items-center gap-2" style="width:100%;">
+         <span class="wh-hint" style="flex:1;margin:0;">${pt}</span>
+         <button class="task-toolbar-btn" onclick="openTaskPointPicker('${t.id}', 'fishing')">Pick</button>
+       </div>`,
+      'Click the spot on the water to cast at -- picked on a frozen screenshot'));
+    fields.push(field('Cast Every',
+      `<div class="task-rep-group" style="width:100%;"><input type="number" min="1" step="1"
+         value="${Math.max(1, parseInt(t.fishing_interval, 10) || DEFAULT_FISHING_INTERVAL)}"
+         oninput="setTaskProp('${t.id}', 'fishing_interval', Math.max(1, parseInt(this.value, 10) || DEFAULT_FISHING_INTERVAL))">s</div>`,
+      'Seconds between casts. A bite takes 6-12s; an extra click never cancels a cast'));
+  }
+
   const extractHint = t.mode === 'expedition'
     ? `<div class="wh-hint">"Extract After" is how many extract prompts to skip before actually taking one -- 0 extracts at the first node, higher goes deeper (and takes longer) per run.</div>` : '';
   const infiniteHint = ((t.mode === 'story' && t.stage === 'Infinite') || (t.mode === 'event' && t.stage === 'infinite'))
@@ -2941,6 +2971,7 @@ function renderTaskBuilder() {
     <div class="task-builder-grid">${fields.join('')}</div>
     ${extractHint}
     ${infiniteHint}
+    ${t.fishing ? `<div class="wh-hint">Auto Fishing casts at the Water Point while the round runs, and stops when it ends. It does not move your character -- park it at the water with a Walk Path block in the Macro Operation, which also re-runs after a Challenge interleave. Needs <code>fishing_rod</code> and <code>fishing_xp</code> crops (Settings &gt; General &gt; Image Manager).</div>` : ''}
     <div class="wh-hint" style="margin-top: 8px;">The macro's Team Loadout comes from its template (Macro Manager tab).</div>
     <div class="flex items-center gap-2" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
       <button class="task-toolbar-btn add" onclick="cloneTaskCard('${t.id}')">&#10697; Clone Task</button>
@@ -4553,9 +4584,43 @@ async function resetMacroCoords() {
 // inputs and saves immediately. Navigate the GAME to the screen the point
 // lives on first (e.g. the stage list for stage rows) -- the capture is of
 // whatever Roblox is showing right now.
+// Pick a point straight into a TASK field (see puState.taskTarget). Same
+// frozen-screenshot flow as the Macro Coordinates picker, but the result goes
+// to the task card instead of the settings inputs -- Auto Fishing's water
+// point is per task, because the water is wherever that task's character was
+// parked.
+async function openTaskPointPicker(taskId, prefix) {
+  const task = findTask(taskId);
+  if (!task) return;
+  puState.blockId = null;
+  puState.coordTarget = null;
+  puState.taskTarget = { id: taskId, prefix };
+  puState.coordHeightKey = null;
+  puState.coordIsRegion = false;
+  puState.coordStep = null;
+  puState.coordFirst = null;
+  puState.coordPreview = null;
+  puState.markX = task[`${prefix}_x`] != null ? parseInt(task[`${prefix}_x`]) : null;
+  puState.markY = task[`${prefix}_y`] != null ? parseInt(task[`${prefix}_y`]) : null;
+  puState.image = null;
+
+  document.getElementById('pu-canvas-wrap').style.display = 'none';
+  document.getElementById('pu-category-tabs').innerHTML = '';
+  const grid = document.getElementById('pu-map-grid');
+  grid.style.display = '';
+  grid.innerHTML = '<div class="rh-empty">Capturing the Roblox screen...</div>';
+  document.getElementById('pu-pos-readout').textContent =
+    puState.markX != null ? `X ${puState.markX}, Y ${puState.markY}` : 'Click the spot to cast at';
+  document.getElementById('pu-modal').style.display = 'flex';
+
+  const ok = await usePlaceUnitRobloxScreen();
+  if (!ok) closePlaceUnitModal();
+}
+
 async function openCoordPicker(prefix) {
   puState.blockId = null;
   puState.coordTarget = prefix;
+  puState.taskTarget = null;
   // Row-based points have a height companion input and become a TWO-STEP
   // pick: click the first row, then the second, and the spacing IS the row
   // height -- no more eyeballing a pixel count. Step 0 = waiting for row 1,
@@ -5547,6 +5612,11 @@ let puState = {
   // writes x/y/w/h instead of a point plus a row height.
   coordHeightKey: null, coordStep: null, coordFirst: null, coordPreview: null,
   coordIsRegion: false,
+  // Third pick target: a TASK's own fields (Auto Fishing's water point).
+  // Settings coordinates are global and block params belong to a template --
+  // a per-task point is neither, so it gets its own target rather than being
+  // squeezed into one of those. {id, prefix} -> writes <prefix>_x/_y.
+  taskTarget: null,
 };
 
 // Remembers whichever map was picked last (see selectPlaceUnitMap), across
@@ -5634,6 +5704,7 @@ function closePlaceUnitModal() {
   puState.blockId = null;
   puState.paramKeys = null;
   puState.coordTarget = null;
+  puState.taskTarget = null;
   puState.coordHeightKey = null;
   puState.coordStep = null;
   puState.coordFirst = null;
@@ -5802,7 +5873,7 @@ function drawPlaceUnitCanvas() {
 
   // Placed-unit markers are Macro Manager context -- noise on a Macro
   // Coordinates pick, where no blocks are involved.
-  for (const u of (puState.coordTarget ? [] : otherPlacedUnits())) {
+  for (const u of ((puState.coordTarget || puState.taskTarget) ? [] : otherPlacedUnits())) {
     const sx = puState.panX + u.x * puState.zoom;
     const sy = puState.panY + u.y * puState.zoom;
     ctx.beginPath();
@@ -5861,6 +5932,14 @@ function drawPlaceUnitCanvas() {
 }
 
 function applyPlaceUnitPosition() {
+  if (puState.taskTarget) {
+    const { id, prefix } = puState.taskTarget;
+    setTaskProp(id, `${prefix}_x`, puState.markX);
+    setTaskProp(id, `${prefix}_y`, puState.markY);
+    document.getElementById('pu-pos-readout').textContent = `X ${puState.markX}, Y ${puState.markY}`;
+    renderTaskBuilder();
+    return;
+  }
   if (puState.coordTarget) {
     // Macro Coordinates Pick mode -- write straight to the settings inputs
     // and persist, no block involved (see openCoordPicker).

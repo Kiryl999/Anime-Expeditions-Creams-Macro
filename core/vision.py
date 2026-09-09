@@ -140,6 +140,13 @@ def set_name_thresholds(mapping: dict) -> None:
     _name_thresholds = clean
 
 
+def threshold_for(name: str) -> float:
+    """The threshold `name` is actually matched at, including any Image
+    Manager sensitivity override. Public so a caller can SAY what a search
+    was measured against when reporting that it found nothing."""
+    return _effective_threshold(name, DEFAULT_THRESHOLD)
+
+
 def _effective_threshold(name: str, threshold: float) -> float:
     """The threshold to actually use for `name`: a per-name override when the
     caller left threshold at the default, otherwise the caller's explicit

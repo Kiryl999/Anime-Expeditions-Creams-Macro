@@ -346,6 +346,25 @@ CLOSE_POPUP_VERIFY_DELAY = 0.45
 # image as missing once and the offer is left to time out, exactly as before.
 PORTAL_OFFER_IMAGE = "portal_offer"
 
+# Auto Fishing. Casting is a plain left-click on water, so the whole feature
+# is: get the rod out once, then click the same spot on a timer while the
+# round runs. Where that spot is depends on where the player parked their
+# character, so it is per-TASK (a task already carries its map) rather than
+# a global coordinate -- see the fishing_x/fishing_y task fields.
+#
+# Neither crop ships; both are captured per setup (Settings > General >
+# Image Manager). Without them the rod is never taken out, fishing quietly
+# does nothing, and the round is otherwise untouched.
+FISHING_ROD_IMAGE = "fishing_rod"   # the rod button, bottom-left
+FISHING_XP_IMAGE = "fishing_xp"     # the fishing XP bar, bottom-right -- only on screen while the rod is OUT
+FISHING_ROD_VERIFY_TIMEOUT = 6.0    # how long to wait for the XP bar after clicking the rod
+FISHING_XP_SETTLE_TIMEOUT = 3.0     # how long to look for the bar BEFORE deciding the rod is away
+# Re-cast cadence. A bite takes 6-12s and an extra click neither cancels a
+# cast nor costs anything (only clicking the rod button again does), so this
+# is deliberately at the fast end: it re-casts promptly after a catch instead
+# of idling. Per-task override in the task's fishing_interval field.
+FISHING_CLICK_INTERVAL = 6.0
+
 # Event mode: reached straight from the lobby via its own nav_event button
 # (NOT through Play like Story/Raid/Expedition/Challenge), then the Summer
 # event's nav entry, then its gamemode card, then one of the event kind cards.

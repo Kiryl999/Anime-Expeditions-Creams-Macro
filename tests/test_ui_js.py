@@ -101,6 +101,7 @@ def test_new_tasks_have_a_bounded_infinite_wave_default(tmp_path):
     out = run_js("""
         const TASK_DATA = { story: { maps: ['Map'] } };
         const DEFAULT_INFINITE_WAVE_LIMIT = 20;
+        const DEFAULT_FISHING_INTERVAL = 6;
         function newTaskId() { return 't1'; }
         eval(extract('defaultTask'));
         console.log(JSON.stringify(defaultTask()));
@@ -152,6 +153,7 @@ def test_infinite_task_summary_shows_its_exit_wave(tmp_path):
     out = run_js("""
         const TASK_DATA = { story: { label: 'Story' } };
         const DEFAULT_INFINITE_WAVE_LIMIT = 20;
+        const DEFAULT_FISHING_INTERVAL = 6;
         eval(extract('taskSummary'));
         console.log(JSON.stringify(taskSummary({
           mode: 'story', map: 'Map', stage: 'Infinite', difficulty: 'Normal',
@@ -165,6 +167,7 @@ def test_event_infinite_task_summary_shows_its_exit_wave(tmp_path):
     out = run_js("""
         const TASK_DATA = { event: { label: 'Event' } };
         const DEFAULT_INFINITE_WAVE_LIMIT = 20;
+        const DEFAULT_FISHING_INTERVAL = 6;
         eval(extract('taskSummary'));
         console.log(JSON.stringify(taskSummary({
           mode: 'event', stage: 'infinite', map: 'Event',
@@ -180,6 +183,7 @@ def test_tournament_task_summary_names_its_type_and_hides_play_mode(tmp_path):
     out = run_js("""
         const TASK_DATA = { tournament: { label: 'Tournament' } };
         const DEFAULT_INFINITE_WAVE_LIMIT = 20;
+        const DEFAULT_FISHING_INTERVAL = 6;
         eval(extract('taskSummary'));
         console.log(JSON.stringify(taskSummary({
           mode: 'tournament', map: 'Solo Tournament', stage: '-',
@@ -210,6 +214,7 @@ def test_tower_mode_defaults_to_rose_kingdom_and_traitless_summary_chip(tmp_path
           },
         };
         const DEFAULT_INFINITE_WAVE_LIMIT = 20;
+        const DEFAULT_FISHING_INTERVAL = 6;
         let taskCards = [{
           id: 't1', mode: 'story', map: 'School Grounds', stage: '1', difficulty: 'Normal',
           repeat: 1, play_mode: 'matchmaking', macro: ''
@@ -1628,6 +1633,7 @@ global.refreshTaskTemplates = async () => {};
 global.saveTaskQueue = () => {};
 global.newTaskId = () => 't1';
 global.DEFAULT_INFINITE_WAVE_LIMIT = 20;
+global.DEFAULT_FISHING_INTERVAL = 6;
 global.MAX_EXTRACT_AFTER = 20;
 global.TASK_DATA = { story: { maps: ['Rose'] }, event: { stages: ['infinite', 'portal'] } };
 global.taskCards = [];

@@ -163,6 +163,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # stray click on those is what _clear_result_obtainment_modal exists
         # to undo. So it fires once and then stops looking.
         self._portal_offer_taken = False
+        # Auto Fishing: when the last cast went out, whether the rod was
+        # confirmed out for this match, and whether an attempt already failed
+        # (see _ensure_rod_out/_tick_fishing). The last one is RUN-scoped, not
+        # per match -- the rod button toggles.
+        self._last_fishing_cast_at = 0.0
+        self._fishing_ready = False
+        self._fishing_rod_attempted = False
+        self._fishing_gave_up = False
         # Proof the battle is genuinely under way (cards drop for kills), and
         # the quiet-period clock the deferred placements wait on. Anything
         # that disrupts the board -- a card, a mid-run Start Game -- restarts
@@ -678,6 +686,122 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._mouse.click(left + self._coords["screen_middle_x"], top + self._coords["screen_middle_y"])
         return True
 
+    def _best_match_score(self, hwnd, name: str):
+        """The best score `name` reaches against the screen right now, even
+        below threshold -- or None when it cannot be measured.
+
+        Purely for reporting. "Not found" is ambiguous on its own: a crop that
+        scores 0.88 against a 0.90 threshold needs its sensitivity lowered,
+        while one that scores 0.30 is simply the wrong picture. Saying which
+        turns a guessing game into one number.
+        """
+        try:
+            gray = vision.capture_game_gray(hwnd)
+            if gray is None:
+                return None
+            best = None
+            for template, mask in vision.load_template_grays(name):
+                match = vision.best_match_in_gray(gray, template, mask)
+                if match is not None and (best is None or match["score"] > best):
+                    best = match["score"]
+            return best
+        except Exception:
+            return None
+
+    def _ensure_rod_out(self, hwnd, stop_event: threading.Event = None) -> bool:
+        """Get the fishing rod out, if it is not already.
+
+        Called from inside the match loop, NOT before the round starts. The XP
+        bar is part of the in-game HUD, and before the round is running that
+        HUD is not up yet -- so an earlier check reported "rod is away" while
+        the rod was plainly out, and the click below then put it AWAY.
+        Reported live, and the worst possible failure for this feature: the
+        rod button toggles, so a wrong answer here does not merely fail to
+        fish, it undoes the state it was trying to reach.
+
+        The XP bar is the only reliable "rod is out" signal, so it is checked
+        first and the rod button clicked at most ONCE per match. Everything
+        after that first attempt is left alone: a second click on a rod that
+        did come out would put it away again, and no amount of retrying can
+        tell those two states apart.
+
+        Never fatal. A missing crop, a rod button that cannot be found, an XP
+        bar that never appears -- all of them log once and leave the round to
+        run without fishing, because fishing must not be able to stop a run.
+        """
+        # Waited for, not glanced at. A single look can land on a frame where
+        # the HUD has not drawn yet, and the cost of a wrong "the rod is away"
+        # is the rod being put away.
+        try:
+            if vision.wait_for_image(hwnd, FISHING_XP_IMAGE, timeout=FISHING_XP_SETTLE_TIMEOUT,
+                                      stop_event=stop_event) is not None:
+                self._log("[Macro] Auto Fishing: rod is already out -- casting.")
+                return True
+        except vision.TemplateNotFound as exc:
+            if not self._fishing_rod_attempted:
+                self._fishing_rod_attempted = True
+                self._log(f"[Macro] Auto Fishing: {exc}")
+            return False
+
+        # One attempt per match, whatever comes of it -- and none at all once
+        # a whole attempt has already failed this run (see _fishing_gave_up).
+        if self._fishing_rod_attempted or self._fishing_gave_up:
+            return False
+        self._fishing_rod_attempted = True
+
+        self._set_status(action="Taking the fishing rod out...")
+        if self._click_found_image(hwnd, FISHING_ROD_IMAGE, EVENT_SCREEN_TIMEOUT, stop_event) is None:
+            self._log("[Macro] Auto Fishing: couldn't find the rod button -- fishing this round.")
+            return False
+
+        try:
+            back = vision.wait_for_image(hwnd, FISHING_XP_IMAGE,
+                                          timeout=FISHING_ROD_VERIFY_TIMEOUT, stop_event=stop_event)
+        except vision.TemplateNotFound:
+            back = None
+        if back is None:
+            # Stop for the whole RUN, not just this match. One click per match
+            # sounds safe until you notice the button TOGGLES: match 1 puts the
+            # rod away, match 2 takes it out, match 3 puts it away again. That
+            # alternating flip is worse than not fishing at all, and it is what
+            # actually happened. Giving up entirely is the only safe answer
+            # while the bar cannot be recognised.
+            self._fishing_gave_up = True
+            best = self._best_match_score(hwnd, FISHING_XP_IMAGE)
+            score = f"best match {best:.2f} vs threshold "
+            score += f"{vision.threshold_for(FISHING_XP_IMAGE):.2f}" if best is not None else "n/a"
+            shot = self._save_debug_screenshot_unconditional(hwnd, "fishing_xp_not_found")
+            self._log(f"[Macro] Auto Fishing: clicked the rod button but the XP bar never showed "
+                      f"({score}). If the rod was ALREADY out, that click just put it away. "
+                      f'Auto Fishing is now OFF for the rest of this run so the button is not '
+                      f'toggled every round -- fix the "{FISHING_XP_IMAGE}" crop (or lower its '
+                      f"sensitivity in Image Manager) and start the run again."
+                      + (f" Debug: {shot}" if shot else ""))
+            return False
+        self._log("[Macro] Auto Fishing: rod is out.")
+        return True
+
+    def _tick_fishing(self, hwnd, point, interval: float) -> None:
+        """Cast again if `interval` has passed since the last cast.
+
+        Casting is just a left-click on water. Called LAST in the match poll
+        tick and skipped whenever anything else already clicked this tick --
+        a Place Unit block is a two-step select-then-place, and a cast landing
+        between those two puts the unit in the water.
+        """
+        now = time.time()
+        if now - self._last_fishing_cast_at < interval:
+            return
+        # The first cast of a match says so; the rest stay quiet. A line every
+        # interval would be ~30 per round, but with none at all there is no
+        # way to tell a working setup from one that never got going -- which
+        # is exactly how this looked when it was silent end to end.
+        if self._last_fishing_cast_at == 0.0:
+            self._log(f"[Macro] Auto Fishing: casting at ({point[0]}, {point[1]}) "
+                      f"every {interval:.0f}s.")
+        self._last_fishing_cast_at = now
+        self._mouse.click(*vision.ref_to_screen(hwnd, point[0], point[1]))
+
     def _take_portal_offer_if_found(self, hwnd) -> bool:
         """Take the middle portal when the post-round offer is up.
 
@@ -858,6 +982,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         webhook = webhook or {}
         self._active_task_progress = None
         self._current_task = None
+        # Auto Fishing's "gave up" flag is RUN-scoped, and this object is a
+        # module-level singleton -- without clearing it here, one failed rod
+        # attempt disabled fishing until the whole app was restarted.
+        self._fishing_gave_up = False
 
         hwnd = hwnd_getter()
         if not hwnd or not wm.is_window(hwnd):
@@ -1809,6 +1937,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._battle_leave_requested = False
         self._is_expedition_match = task.get("mode") == "expedition"
         self._portal_offer_taken = False   # fresh match, fresh offer
+        self._last_fishing_cast_at = 0.0   # cast on the first tick
+        self._fishing_ready = False
+        self._fishing_rod_attempted = False
         self._wave_region = EXPEDITION_WAVE_REGION if self._is_expedition_match else WAVE_REGION
         self._last_reward_card_at = 0.0
         self._last_board_disruption_at = 0.0
@@ -1846,6 +1977,40 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         return self._wait_for_match_result(hwnd, stop_event, battle_blocks, first_repeat, task.get("macro"),
                                              task.get("mode"), watch_close_popup, webhook, task)
 
+
+    @staticmethod
+    def _fishing_point(task: dict):
+        """The task's water click point, or None when fishing is off.
+
+        Per task rather than a global coordinate: where the water is depends
+        on where the character was parked, so two tasks on two maps need two
+        points. A task already carries its map, which makes "per task" and
+        "per map" the same thing here without a second lookup table.
+
+        Off unless the toggle is on AND both axes are set -- a half-set point
+        cannot aim at anything, the same rule the optional coordinates use.
+        """
+        task = task or {}
+        if not task.get("fishing"):
+            return None
+        x, y = task.get("fishing_x"), task.get("fishing_y")
+        if x in (None, "") or y in (None, ""):
+            return None
+        try:
+            return int(x), int(y)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _fishing_interval(task: dict) -> float:
+        """Seconds between casts. A bite takes 6-12s and an extra click is
+        harmless (only the rod button cancels a cast), so the default sits at
+        the fast end to re-cast promptly after a catch."""
+        try:
+            value = float((task or {}).get("fishing_interval") or FISHING_CLICK_INTERVAL)
+        except (TypeError, ValueError):
+            return FISHING_CLICK_INTERVAL
+        return max(1.0, value)
 
     @staticmethod
     def _wants_portal_offer_watch(task: dict) -> bool:
@@ -1983,6 +2148,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                                  watch_close_popup: bool = False, webhook: dict = None, task: dict = None) -> str:
         self._log("[Macro] Battle in progress -- watching for Victory/Defeat...")
         watch_portal_offer = self._wants_portal_offer_watch(task or {})
+        fishing_point = self._fishing_point(task)
+        fishing_interval = self._fishing_interval(task)
         self._set_status(action="Battle in progress...")
         battle_blocks = battle_blocks or []
         infinite_wave_limit = self._infinite_wave_limit(task)
@@ -2019,6 +2186,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 if limit_result == "failed":
                     return None
 
+            # Snapshot before the block tick: the index advancing IS the
+            # signal that a block did something this tick, which is what
+            # holds a fishing cast back (see the tick at the end of the loop).
+            block_index_before = self._battle_block_index
             if battle_blocks:
                 self._run_battle_blocks_tick(hwnd, stop_event, battle_blocks, first_repeat, macro_name)
                 if self._checkpoint(stop_event):
@@ -2085,8 +2256,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
             afk_clicked_at = self._dismiss_afk_chamber(hwnd, afk_clicked_at)
 
+            clicked_something = False
             if watch_close_popup:
-                self._click_close_popup_if_found(hwnd)
+                clicked_something = self._click_close_popup_if_found(hwnd) or clicked_something
 
             # The three-portal offer opens BEFORE the Victory screen and takes
             # itself away after ~20s, picking at random -- so it has to be
@@ -2095,6 +2267,24 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if watch_portal_offer and not self._portal_offer_taken:
                 if self._take_portal_offer_if_found(hwnd):
                     self._portal_offer_taken = True
+                    clicked_something = True
+
+            # Auto Fishing goes LAST in the tick, and only when nothing else
+            # clicked. A cast is a plain left-click on water; a Place Unit
+            # block is a two-step select-then-place, and a cast landing
+            # between those two steps puts the unit in the water. Skipping the
+            # tick costs at most one cast -- an extra click never cancels a
+            # cast, so the next tick simply catches up.
+            block_acted = self._battle_block_index != block_index_before
+            if fishing_point and not clicked_something and not block_acted:
+                # The rod check lives HERE, not before the round: the XP bar
+                # is in-game HUD, absent until the round is actually running.
+                # Checking it too early reported "rod is away" while it was
+                # out, and the rod button toggles -- so that click put it away.
+                if not self._fishing_ready:
+                    self._fishing_ready = self._ensure_rod_out(hwnd, stop_event)
+                if self._fishing_ready:
+                    self._tick_fishing(hwnd, fishing_point, fishing_interval)
 
             if mode == "expedition":
                 # An encounter node parks the client where no result can come
