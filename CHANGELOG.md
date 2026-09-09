@@ -2,6 +2,12 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [Unreleased]
+
+### New
+- **Portal mode**: a Task Queue mode for the event portals, entered through the inventory (Inventory -> Portals tab -> the portal -> Activate Portal -> Start) rather than through Play or the lobby Event button. No stage, difficulty or Solo/Matchmaking choice; each repeat re-activates a portal from the lobby, since a portal is spent by the run that used it.
+- **Portal card pick**: the macro takes one of the 3 portal cards the event offers as a run ends -- watched for from inside the match, since that offer opens before the Victory screen and closes itself after ~15s -- and verifies the choice window actually closed instead of assuming the click landed. Which card to take is set per task; where the cards sit is read from a `portal_card_slot` crop, or set under Settings > Debug > Macro Coordinates > Portal Cards, with an optional search area for when the readiness image is a portal name.
+
 ## [0.20.0] - 2026-09-09
 
 ### New

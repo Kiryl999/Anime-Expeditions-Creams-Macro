@@ -196,6 +196,18 @@ MACRO_COORD_DEFAULTS = {
     "team_button_x": None, "team_button_y": None,
     "screen_middle_x": 576, "screen_middle_y": 378,
     "unit_info_reset_x": 3, "unit_info_reset_y": 3,
+    # Portal mode's 3 post-win cards. Optional like team_button above: None
+    # means Auto, which reads the points off the live screen instead (see
+    # core.runner_portal._portal_card_point). Left empty by default rather
+    # than guessed -- the pick has one 15s window and no second attempt, so a
+    # made-up pixel pair would just click the wrong thing reliably.
+    "portal_card_1_x": None, "portal_card_1_y": None,
+    "portal_card_2_x": None, "portal_card_2_y": None,
+    "portal_card_3_x": None, "portal_card_3_y": None,
+    # Optional (x, y, w, h) box the card-window check searches in -- unset
+    # means the whole screen. See DEFAULT_COORDS for why it is worth setting.
+    "portal_card_region_x": None, "portal_card_region_y": None,
+    "portal_card_region_w": None, "portal_card_region_h": None,
 }
 
 # Settings > Debug > "Reward Reader"/"Game Stats": OCR capture regions for
@@ -888,12 +900,18 @@ class Api:
             cfg.update(clean)
         return {"ok": True, "saved": list(clean)}
 
+    # The coordinate points that have a real "Auto" behavior behind them --
+    # the only ones an Auto button can clear back to, since every other key
+    # is a plain number the runner reads unconditionally.
+    OPTIONAL_COORD_PREFIXES = ("team_button", "portal_card_1", "portal_card_2", "portal_card_3")
+
     def clear_macro_coord(self, prefix: str) -> dict:
         """Clear an optional coordinate override back to automatic behavior."""
-        if prefix != "team_button":
+        if prefix not in self.OPTIONAL_COORD_PREFIXES:
             return {"ok": False, "reason": "not_optional"}
-        cfg.update({"team_button_x": None, "team_button_y": None})
-        return {"ok": True, "cleared": ["team_button_x", "team_button_y"]}
+        cleared = [f"{prefix}_x", f"{prefix}_y"]
+        cfg.update({key: None for key in cleared})
+        return {"ok": True, "cleared": cleared}
 
     def reset_macro_coords(self) -> dict:
         cfg.update(dict(MACRO_COORD_DEFAULTS))

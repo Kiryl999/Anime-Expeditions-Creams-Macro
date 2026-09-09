@@ -213,6 +213,52 @@ macro scrolls through the whole carousel three times first and then says the
 label never matched. Add a second crop to the same folder in that case rather
 than replacing the first -- every .png in the folder is tried.
 
+### Portal mode (event portals)
+
+Portals are activated from the **inventory**, not from Play, so this mode has
+its own navigation: lobby -> Inventory -> Portals tab -> the portal's card ->
+**Activate Portal** -> Start. There is no stage, no difficulty, and no
+Solo/Matchmaking choice. Every repeat goes back to the lobby and activates a
+portal again, because a portal is spent by the run that used it.
+
+The event is new enough that no reference images ship for it. Capture these
+under **Settings > General > Image Manager > Capture Roblox** before running a
+portal task -- the folder name has to match exactly:
+
+| Image | What to crop |
+| --- | --- |
+| `nav_inventory` | the lobby's Inventory/Items button |
+| `portal_tab` | the Portals tab inside the inventory |
+| `portal_summer` | the portal's own card (one image per portal offered) |
+| `portal_activate` | the **Activate Portal** button |
+| `portal_card_ready` | something visible *only* while the 3 cards offered after a win are pickable -- the heading, the countdown, or one card's frame |
+| `portal_card_slot` | optional: one card's frame, cropped so all three match |
+
+As a portal run ends the event offers 3 new portal cards and takes the offer
+away again after about 15 seconds. That happens **before the Victory screen
+appears**, not after it, so the macro watches for it from inside the match
+rather than after the result -- one attempt per run.
+
+**Portal Card** in the Task Builder picks which one to take. Where the three
+sit on screen comes from `portal_card_slot` when that crop exists (all three
+are located automatically, left to right); otherwise set the points under
+**Settings > Debug > Macro Coordinates > Portal Cards**, using **Pick** on a
+live capture rather than estimating them. The macro confirms the choice window
+actually closed after the click -- if it did not, the log says so instead of
+continuing into a portal that was never chosen.
+
+If your `portal_card_ready` crop is a portal *name*, also fill in **Portal Card
+Search Area** (x, y, width, height) in the same Settings section. The same name
+can appear in the HUD or on another card, and restricting the search to the
+strip the cards occupy is what makes a match mean "the cards are up" rather
+than "that word is somewhere on screen". All four values have to be set for it
+to apply; leave them empty to search the whole screen.
+
+Adding another portal takes two edits that must match: an entry in
+`PORTAL_IMAGES`/`PORTAL_ORDER` (`core/runner_constants.py`) and the same string
+in `TASK_DATA.portal.maps` (`ui/app.js`). `tests/test_portal_mode.py` fails if
+they drift apart.
+
 For challenges, open **Challenge** separately. Enable Daily and/or the desired
 Regular Challenge slots, select Solo or Matchmaking, and assign an operation
 for each map that may appear. Challenge automation runs before the normal task

@@ -358,6 +358,50 @@ TOURNAMENT_TYPE_IMAGES = {
     "Solo Tournament": ("solo_tournament",),
 }
 TOURNAMENT_SCREEN_TIMEOUT = 10.0  # how long to wait for each Tournament screen (nav_tournament / the type card / nav_entertournament) to appear
+
+# Portal event: reached through the INVENTORY, not through Play and not
+# through nav_event (that one is Villian Invasion). Lobby -> nav_inventory ->
+# portal_tab -> the portal's own card -> portal_activate -> the shared solo
+# Start tail (nav_start). There's no map carousel, no stage row and no
+# difficulty picker -- picking the portal IS the whole selection, and
+# "Activate Portal" doubles as the confirm the other modes get from
+# nav_select_stage. The chosen portal name is stored in the task's `map`
+# field (mirrors TASK_DATA.portal.maps in ui/app.js), so it reads straight
+# through to the logs, Status Readout and match webhook.
+#
+# Every name below is an image folder under Assets/ui/ that the user has to
+# capture themselves (Settings > General > Image Manager > Capture Roblox) --
+# the event is new, so nothing ships for it. A missing crop isn't fatal: the
+# search raises TemplateNotFound, which the runner logs and turns into a
+# normal "couldn't reach the portal" retry.
+PORTAL_ORDER = ["Summer Portal"]
+# Values are a tuple of candidate crops per portal (any match wins), same
+# shape as EVENT_ACT_IMAGES/TOURNAMENT_TYPE_IMAGES, so a card shown in more
+# than one visual state can still be matched. Add a (portal -> image) pair
+# here plus the matching entry in TASK_DATA.portal.maps to offer another
+# portal -- tests/test_portal_mode.py fails if the two drift apart.
+PORTAL_IMAGES = {
+    "Summer Portal": ("portal_summer",),
+}
+PORTAL_SCREEN_TIMEOUT = 10.0  # how long to wait for each Portal screen (inventory / Portals tab / the portal card / Activate Portal) to appear
+
+# The portal event offers 3 new portal cards as a run ENDS -- before the
+# Victory screen renders, not after it -- and closes the choice again on its
+# own after ~15s. So it's watched for from inside the match poll loop (see
+# runner._wait_for_match_result), and the pick is verified (the choice panel
+# has to actually disappear) instead of assumed, because a swallowed click
+# looks identical to a successful one until the window times out and the run
+# continues into a portal it never chose.
+PORTAL_CARD_READY_IMAGE = "portal_card_ready"  # only on screen while the 3 cards are pickable
+# Optional: the individual card frame, cropped so all 3 match. When it
+# exists, the click points for cards 1-3 are derived from its matches
+# (left to right) and no coordinates need setting at all. Without it (or
+# without portal_card_ready matching 3x), the portal_card_1..3 coordinates
+# in Settings > Debug > Macro Coordinates are what decides where to click.
+PORTAL_CARD_SLOT_IMAGE = "portal_card_slot"
+PORTAL_CARD_WINDOW = 15.0        # the in-game choice window -- the budget the click + its confirmation share
+PORTAL_CARD_CHOICE_DEFAULT = "1"  # which of the 3 cards to take when the task doesn't say
+PORTAL_CARD_COUNT = 3
 TOWER_SCREEN_TIMEOUT = 10.0  # how long to wait for each Tower screen (nav_tower / Traitless_Tower / nav_select_stage) to appear
 
 # Reference-window region (x, y, w, h) of the Tower game mode.
@@ -901,6 +945,21 @@ DEFAULT_COORDS = {
     "unit_info_reset_x": UNIT_INFO_RESET_CLICK[0], "unit_info_reset_y": UNIT_INFO_RESET_CLICK[1],
     "daily_challenge_tab_x": 250, "daily_challenge_tab_y": 315,
     "daily_challenge_stage_x": 650, "daily_challenge_stage_y": 360,
+    # The 3 portal cards offered after a won Portal run. None = Auto: the
+    # points are read off the live screen instead (see
+    # runner_portal._portal_card_point), which is the only honest default
+    # while nobody has measured the real layout yet -- a made-up pixel pair
+    # would click somewhere wrong inside a 15s window with no second try.
+    "portal_card_1_x": None, "portal_card_1_y": None,
+    "portal_card_2_x": None, "portal_card_2_y": None,
+    "portal_card_3_x": None, "portal_card_3_y": None,
+    # Optional search box for portal_card_ready (x, y, w, h). Unset = the
+    # whole screen. Worth filling in when the readiness crop is a portal
+    # NAME, since the same name can show up in the HUD or on another card --
+    # restricting it to the strip the cards occupy is what makes the match
+    # mean "the cards are up" rather than "that word is somewhere on screen".
+    "portal_card_region_x": None, "portal_card_region_y": None,
+    "portal_card_region_w": None, "portal_card_region_h": None,
 }
 
 # Victory/Defeat: no fixed timeout makes sense for "how long can a battle

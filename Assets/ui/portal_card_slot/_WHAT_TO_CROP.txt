@@ -1,0 +1,29 @@
+portal_card_slot -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "portal_card_slot.png" in THIS folder.
+
+What to crop:
+  OPTIONAL. One portal card's frame, cropped so all 3 cards match it.
+
+Where/how:
+  Only the shared frame/border -- no card art, no card name, nothing
+  that differs between the three. With this the macro locates cards
+  1-3 itself (left to right) and no coordinates need setting.
+  Without it, set the points under
+  Settings > Debug > Macro Coordinates > Portal Cards.
+  It only counts when ALL 3 match -- fewer hits are ignored on
+  purpose, so a too-specific crop fails loudly instead of clicking
+  the wrong place.
+
+Easiest way: Settings > General > Image Manager > Capture Roblox, drag a box
+around it, type the name "portal_card_slot", Save Crop -- that writes the file here and
+no restart is needed. A hand-made PNG dropped in here works too; use
+Settings > "Reload Vision Images" afterwards so the cache picks it up.
+
+Crop TIGHTLY around the element, with as little background as possible. The
+match threshold is 0.90, and a loose crop drags in pixels that change between
+runs. More crops of the SAME element can be added here under any other .png
+name -- all of them are tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

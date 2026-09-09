@@ -1,0 +1,29 @@
+portal_card_ready -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "portal_card_ready.png" in THIS folder.
+
+What to crop:
+  Something visible ONLY while the 3 cards offered after a won portal
+  run are pickable.
+
+Where/how:
+  The heading ("Choose your next Portal" or similar), the countdown
+  ring, or one card's frame. This is how the macro knows the ~15s
+  choice window is open, so it must NOT match anything on the normal
+  Victory screen or in the lobby -- if it does, the macro will think
+  cards are up when they are not.
+  Tip: if you crop one card's FRAME here (so it matches all 3), you
+  do not need portal_card_slot or any coordinates at all.
+
+Easiest way: Settings > General > Image Manager > Capture Roblox, drag a box
+around it, type the name "portal_card_ready", Save Crop -- that writes the file here and
+no restart is needed. A hand-made PNG dropped in here works too; use
+Settings > "Reload Vision Images" afterwards so the cache picks it up.
+
+Crop TIGHTLY around the element, with as little background as possible. The
+match threshold is 0.90, and a loose crop drags in pixels that change between
+runs. More crops of the SAME element can be added here under any other .png
+name -- all of them are tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

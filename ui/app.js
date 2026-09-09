@@ -2202,6 +2202,27 @@ const TASK_DATA = {
     maps: ['Solo Tournament'],
     isTournament: true,
   },
+  portal: {
+    label: 'Portal',
+    // The portal event is entered through the INVENTORY -- nav_inventory ->
+    // portal_tab -> the portal's card -> portal_activate -> Start -- not
+    // through Play and not through the lobby Event button (that one is
+    // Villian Invasion, mode 'event'). No stage rows, no difficulty, and no
+    // Solo/Matchmaking choice: activating your own portal IS the entry.
+    // Like Tournament, the "maps" list here IS the picker -- each entry maps
+    // to its own on-screen card image (see runner_constants' PORTAL_IMAGES,
+    // hand-synced with this list; tests/test_portal_mode.py fails if they
+    // drift). The chosen name is stored in the task's `map` field, so it
+    // reads straight through to logs, Status Readout and webhook.
+    maps: ['Summer Portal'],
+    // As a portal run ENDS -- before the Victory screen, not after it --
+    // the event offers 3 new portal cards and closes the choice again after
+    // ~15s. This picks which one to take. Where those cards sit on screen is
+    // Settings > Debug > Macro Coordinates ("Portal Cards"), or read off the
+    // live screen when left on Auto.
+    portalCards: ['1', '2', '3'],
+    isPortal: true,
+  },
   tower: {
     label: 'Tower',
     maps: ['Rose Kingdom'],  // internal default only -- Tower has no map picker in-game
@@ -2234,6 +2255,8 @@ function defaultTask() {
     infinite_wave_limit: DEFAULT_INFINITE_WAVE_LIMIT,
     extract_after: '1',
     repeat: 1, team: '', equipment: 'include', play_mode: 'solo', macro: '',
+    // Portal-only: which of the 3 cards offered after a win to take.
+    portal_card: '1',
     // Event-only: auto-clear Villian Invasion Act 4 when a Crow Relic drops.
     // act4_mode 'once' spends one relic then resumes; 'until_locked' spends
     // every banked relic. act4_macro is Act 4's own Macro Operation (it plays
@@ -2737,6 +2760,18 @@ function setTaskProp(id, key, value) {
     // 'matchmaking'. Force it so switching from a matchmaking task can't leave
     // Tournament silently waiting on an Enter Matchmaking button.
     if (d.isTournament) t.play_mode = 'solo';
+    // Portal has no Solo/Matchmaking choice either -- the run starts from
+    // your own activated portal, and the runner takes the solo Start tail
+    // for it regardless. Forced here so switching over from a matchmaking
+    // task can't leave a portal task labelled as something it isn't.
+    if (d.isPortal) {
+      t.play_mode = 'solo';
+      if (!t.portal_card) t.portal_card = '1';
+      // No stage concept here -- cleared so a stage left behind by the mode
+      // this task was switched FROM isn't reported as a real one in the
+      // Status Readout and the match webhook.
+      t.stage = '';
+    }
     if (d.isTower) {
       t.map = d.maps[0];
       t.stage = d.stages[0];
@@ -2757,7 +2792,7 @@ function taskOpts(list, current, fmt) {
 }
 
 // One accent per mode so the queue scans by color before you even read it.
-const TASK_MODE_COLORS = { story: 'var(--brand)', raid: 'var(--rose)', expedition: 'var(--teal)', event: 'var(--amber)', tournament: 'var(--lilac)', tower: 'var(--slate)' };
+const TASK_MODE_COLORS = { story: 'var(--brand)', raid: 'var(--rose)', expedition: 'var(--teal)', event: 'var(--amber)', tournament: 'var(--lilac)', tower: 'var(--slate)', portal: 'var(--sky)' };
 
 // The two text lines a queue row shows for a task -- where it goes, then how
 // it runs. All editing happens in the Builder, rows are read-only summaries.
@@ -2766,7 +2801,7 @@ function taskSummary(t) {
   let title = d.label;
   if (t.mode === 'story' || t.mode === 'raid') {
     title += ` · ${t.map} · ${/^\d+$/.test(t.stage) ? 'Stage ' + t.stage : t.stage}`;
-  } else if (t.mode === 'expedition' || t.mode === 'tournament') {
+  } else if (t.mode === 'expedition' || t.mode === 'tournament' || t.mode === 'portal') {
     title += ` · ${t.map}`;
   } else if (t.mode === 'event') {
     title += ` · Act ${t.stage}`;
@@ -2780,7 +2815,8 @@ function taskSummary(t) {
     t.mode === 'story' && t.stage === 'Infinite'
       ? `Stop after wave ${t.infinite_wave_limit || DEFAULT_INFINITE_WAVE_LIMIT}` : '',
     t.tower_mode === 'traitless' ? 'Traitless' : '',
-    (t.mode === 'tournament' || t.mode === 'tower') ? '' : (t.play_mode === 'matchmaking' ? 'Matchmaking' : 'Solo'),
+    t.mode === 'portal' ? `Card ${t.portal_card || '1'}` : '',
+    (t.mode === 'tournament' || t.mode === 'tower' || t.mode === 'portal') ? '' : (t.play_mode === 'matchmaking' ? 'Matchmaking' : 'Solo'),
     t.macro ? `▸ ${t.macro}` : '',
     (t.mode === 'event' && t.stage !== '4' && t.act4_on_drop)
       ? `⮡ Act 4 on drop${t.act4_mode === 'until_locked' ? ' (until locked)' : ''}` : '',
@@ -2851,7 +2887,7 @@ function renderTaskBuilder() {
   const field = (label, control, tooltip = '') => `<div class="task-field" ${tooltip ? `data-tooltip="${escapeHtml(tooltip)}"` : ''}><span>${label}</span>${control}</div>`;
 
   const fields = [
-    field('Mode', sel('mode', Object.keys(TASK_DATA), k => TASK_DATA[k].label, 'Select game mode: Story, Raid, Expedition, Event, Tournament, or Tower'), 'Choose game mode'),
+    field('Mode', sel('mode', Object.keys(TASK_DATA), k => TASK_DATA[k].label, 'Select game mode: Story, Raid, Expedition, Event, Tournament, Portal, or Tower'), 'Choose game mode'),
     field('Repeat', `<div class="task-rep-group" style="width: 100%;">&times;<input type="number" min="1" value="${t.repeat}"
       oninput="setTaskProp('${t.id}', 'repeat', Math.max(1, parseInt(this.value, 10) || 1))"></div>`, 'Number of times to run this task'),
   ];
@@ -2866,6 +2902,10 @@ function renderTaskBuilder() {
     fields.push(field('Act', sel('stage', d.stages, s => 'Act ' + s, 'Select Event Act 1-4'), 'Select Event Act 1-4'));
   } else if (t.mode === 'tournament') {
     fields.push(field('Type', sel('map', d.maps, null, 'Select the Tournament type to enter'), 'Select the Tournament type to enter'));
+  } else if (t.mode === 'portal') {
+    fields.push(field('Portal', sel('map', d.maps, null, 'Which portal to activate from the inventory'), 'Which portal to activate from the inventory'));
+    fields.push(field('Portal Card', sel('portal_card', d.portalCards, c => 'Card ' + c, 'Which of the 3 cards offered after a win to take'),
+      'Which of the 3 cards offered after a win to take'));
   } else if (t.mode === 'tower') {
     // Tower has no map choice in-game -- map stays at its internal default.
     const towerMode = t.tower_mode || 'normal';
@@ -2897,9 +2937,9 @@ function renderTaskBuilder() {
       `Number of extraction prompts to decline before extracting (maximum ${MAX_EXTRACT_AFTER})`));
   }
 
-  // Tournament and Tower have no Solo/Matchmaking choice -- their runner paths
-  // force the solo Start tail, so the toggle would be a no-op here.
-  if (t.mode !== 'tournament' && t.mode !== 'tower') {
+  // Tournament, Tower and Portal have no Solo/Matchmaking choice -- their
+  // runner paths force the solo Start tail, so the toggle would be a no-op.
+  if (t.mode !== 'tournament' && t.mode !== 'tower' && t.mode !== 'portal') {
     const playSeg = `
       <div class="seg-toggle" data-tooltip="Select Solo or Matchmaking / Party mode">
         <button type="button" class="seg-btn ${t.play_mode === 'solo' ? 'active' : ''}" onclick="setTaskProp('${t.id}', 'play_mode', 'solo'); renderTaskBuilder()">Solo</button>
@@ -2959,12 +2999,21 @@ function renderTaskBuilder() {
     ? `<div class="wh-hint">"Extract After" is how many extract prompts to skip before actually taking one -- 0 extracts at the first node, higher goes deeper (and takes longer) per run.</div>` : '';
   const infiniteHint = (t.mode === 'story' && t.stage === 'Infinite')
     ? `<div class="wh-hint"><b>Stop After Wave</b> completes the wave you enter, waits for the counter to advance once, then uses Leave Stage and returns to the lobby. For example, 20 leaves when wave 21 begins.</div>` : '';
+  const portalHint = t.mode === 'portal'
+    ? `<div class="wh-hint">The portal event is new, so nothing ships for it ${'&#8212;'} capture these under
+       Settings &gt; General &gt; Image Manager before running it: <b>nav_inventory</b> (the lobby's Inventory/Items button),
+       <b>portal_tab</b> (the Portals tab inside it), <b>portal_summer</b> (the portal's own card),
+       <b>portal_activate</b> ("Activate Portal") and <b>portal_card_ready</b> (something only on screen while the
+       3 cards are pickable ${'&#8212;'} that offer opens as the run ends, <i>before</i> the Victory screen). Add
+       <b>portal_card_slot</b> (one card's frame, cropped so all 3 match) and the cards are located automatically ${'&#8212;'}
+       otherwise set their click points under Settings &gt; Debug &gt; Macro Coordinates.</div>` : '';
   const act4Hint = (t.mode === 'event' && t.stage !== '4' && t.act4_on_drop)
     ? `<div class="wh-hint">When a Crow Relic drops on a win, the run leaves this stage, clears Act 4 (Crow - Dawn) with its own Macro Operation above, then comes back. <b>Once</b> spends one relic; <b>Until locked</b> spends every banked relic. Give Act 4 its own Macro Operation ${'&#8212;'} it plays nothing like Acts 1-3.</div>` : '';
   el.innerHTML = `
     <div class="task-builder-grid">${fields.join('')}</div>
     ${extractHint}
     ${infiniteHint}
+    ${portalHint}
     ${act4Hint}
     <div class="wh-hint" style="margin-top: 8px;">The macro's Team Loadout comes from its template (Macro Manager tab).</div>
     <div class="flex items-center gap-2" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
@@ -4500,6 +4549,11 @@ const MACRO_COORD_KEYS = [
   'team_button_x', 'team_button_y',
   'screen_middle_x', 'screen_middle_y',
   'unit_info_reset_x', 'unit_info_reset_y',
+  'portal_card_1_x', 'portal_card_1_y',
+  'portal_card_2_x', 'portal_card_2_y',
+  'portal_card_3_x', 'portal_card_3_y',
+  'portal_card_region_x', 'portal_card_region_y',
+  'portal_card_region_w', 'portal_card_region_h',
 ];
 
 async function loadMacroCoords() {
@@ -5989,7 +6043,13 @@ const IMAGE_DESCRIPTIONS = {
   nav_back: "The Back button used to back out of menus.",
   nav_disband: "The Disband button (leaving a party).",
   nav_event: "The lobby 'Event' button -- Event mode's own entry (not under Play).",
+  nav_inventory: "The lobby's Inventory/Items button -- Portal mode's entry (portals are activated from there, not from Play).",
   nav_play: "The lobby 'Play' button -- how the macro knows it's on the lobby.",
+  portal_activate: "The 'Activate Portal' button on a portal's card -- Portal mode's confirm (it has no Select Stage).",
+  portal_card_ready: "Only visible while the 3 portal cards are pickable (the heading, countdown or card frame) -- how the macro knows the ~15s choice window is open. That offer appears as the run ends, BEFORE the Victory screen, so this is watched for from inside the match.",
+  portal_card_slot: "OPTIONAL: one portal card's frame, cropped so all 3 match -- lets the macro locate cards 1-3 itself instead of needing their coordinates.",
+  portal_summer: "The Summer Portal's card in the inventory's Portals tab.",
+  portal_tab: "The 'Portals' tab inside the inventory.",
   nav_search: "The Search button (Settings search / map search).",
   nav_select_stage: "The 'Select Stage' confirm button on the stage screen.",
   nav_settings: "The Settings (gear) button.",

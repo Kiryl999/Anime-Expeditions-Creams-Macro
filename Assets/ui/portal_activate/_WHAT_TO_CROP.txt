@@ -1,0 +1,23 @@
+portal_activate -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "portal_activate.png" in THIS folder.
+
+What to crop:
+  The "Activate Portal" button.
+
+Where/how:
+  Shown after clicking the portal's card. Crop the button text. This
+  is Portal mode's confirm -- there is no Select Stage for it.
+
+Easiest way: Settings > General > Image Manager > Capture Roblox, drag a box
+around it, type the name "portal_activate", Save Crop -- that writes the file here and
+no restart is needed. A hand-made PNG dropped in here works too; use
+Settings > "Reload Vision Images" afterwards so the cache picks it up.
+
+Crop TIGHTLY around the element, with as little background as possible. The
+match threshold is 0.90, and a loose crop drags in pixels that change between
+runs. More crops of the SAME element can be added here under any other .png
+name -- all of them are tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

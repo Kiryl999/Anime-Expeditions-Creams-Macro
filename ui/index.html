@@ -1817,6 +1817,45 @@
 
           <div class="setting-row" style="padding: 14px;">
             <div>
+              <div class="setting-label">Portal Cards</div>
+              <div class="setting-desc">Click points for the 3 portal cards offered after a won Portal run. Leave empty for Auto (read off the screen via the portal_card_slot / portal_card_ready images).</div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap flex-shrink-0" style="max-width: 460px; justify-content: flex-end;">
+              <span class="text-xs" style="color: var(--text-muted);">1</span>
+              <input id="coord-portal_card_1_x" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_1_x', this.value)">
+              <input id="coord-portal_card_1_y" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_1_y', this.value)">
+              <button onclick="openCoordPicker('portal_card_1')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Capture the Roblox screen and click the left card">Pick</button>
+              <span class="text-xs" style="color: var(--text-muted);">2</span>
+              <input id="coord-portal_card_2_x" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_2_x', this.value)">
+              <input id="coord-portal_card_2_y" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_2_y', this.value)">
+              <button onclick="openCoordPicker('portal_card_2')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Capture the Roblox screen and click the middle card">Pick</button>
+              <span class="text-xs" style="color: var(--text-muted);">3</span>
+              <input id="coord-portal_card_3_x" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_3_x', this.value)">
+              <input id="coord-portal_card_3_y" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_3_y', this.value)">
+              <button onclick="openCoordPicker('portal_card_3')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Capture the Roblox screen and click the right card">Pick</button>
+              <button onclick="clearMacroCoord('portal_card_1'); clearMacroCoord('portal_card_2'); clearMacroCoord('portal_card_3')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Clear all three back to Auto (located from the card images instead)">Auto</button>
+            </div>
+          </div>
+
+          <div class="setting-row" style="padding: 14px;">
+            <div>
+              <div class="setting-label">Portal Card Search Area</div>
+              <div class="setting-desc">Where on screen to look for the <code>portal_card_ready</code> image (x, y, width, height). Leave empty to search the whole screen. Worth setting when that crop is a portal NAME, since the same name can also appear in the HUD or on another card.</div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap flex-shrink-0" style="max-width: 460px; justify-content: flex-end;">
+              <span class="text-xs" style="color: var(--text-muted);">X</span>
+              <input id="coord-portal_card_region_x" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_region_x', this.value)">
+              <span class="text-xs" style="color: var(--text-muted);">Y</span>
+              <input id="coord-portal_card_region_y" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_region_y', this.value)">
+              <span class="text-xs" style="color: var(--text-muted);">W</span>
+              <input id="coord-portal_card_region_w" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_region_w', this.value)">
+              <span class="text-xs" style="color: var(--text-muted);">H</span>
+              <input id="coord-portal_card_region_h" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_card_region_h', this.value)">
+            </div>
+          </div>
+
+          <div class="setting-row" style="padding: 14px;">
+            <div>
               <div class="setting-label">Expedition Difficulty "+"</div>
               <div class="setting-desc">The "+" button that steps the Expedition level up by 1 per click.</div>
             </div>

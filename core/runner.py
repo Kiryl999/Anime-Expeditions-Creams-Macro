@@ -38,6 +38,7 @@ from .runner_challenge import ChallengeOps
 from .runner_crafting import CraftingOps
 from .runner_expedition import ExpeditionOps
 from .runner_fuel import FuelOps
+from .runner_portal import PortalOps
 from .runner_shop import ShopOps
 
 
@@ -114,7 +115,8 @@ def _find_team_load_button(frame, expected_y):
     return cx, cy
 
 
-class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, ExpeditionOps, BlockOps):
+class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, ExpeditionOps, PortalOps,
+                  BlockOps):
     """One run's worth of state -- module-level singleton via main.Api, same
     pattern as core.paths._recorder, since only one run can realistically be
     active at a time (one physical game window, one macro)."""
@@ -145,6 +147,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # a Crow Relic and the task opted into auto-clearing Act 4; read (and
         # cleared) by _run_task, which runs the divert. See _run_act4_diversion.
         self._act4_wants_in = False
+        # Portal mode: one card pick per match. The 3-card offer opens
+        # BEFORE the Victory screen, so it's watched for from inside the
+        # match loop (_wait_for_match_result) rather than after the result --
+        # this makes that a single attempt instead of one per poll. Reset per
+        # match in _play_one_match. See core/runner_portal.py.
+        self._portal_card_attempted = False
         # "Leave at Minute" battle block (see runner_blocks): battle clock +
         # the flag it sets when it leaves. Real values set per match in
         # _play_one_match; defaults here so the Settings > Debug battle test
@@ -900,8 +908,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 map_name = task.get("map")
                 # Event mode has no map to pick (just an Act) -- it's the one
                 # mode where a missing map is expected, not a misconfigured
-                # task, so don't skip it over that.
-                if not map_name and (task.get("mode") or "story") != "event":
+                # task, so don't skip it over that. Portal tasks normally DO
+                # carry a name (the portal's, in the map field), but a task
+                # saved before the picker existed wouldn't, and the portal
+                # path falls back to PORTAL_ORDER[0] for exactly that case --
+                # so a missing name isn't a misconfiguration there either.
+                if not map_name and (task.get("mode") or "story") not in ("event", "portal"):
                     self._log(f"[Macro] Task {task_index}/{len(tasks)} has no map set -- skipping it.")
                     continue
 
@@ -1391,11 +1403,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                     continue
 
                 if not is_last_repeat:
-                    if left_live_match or task.get("play_mode") == "matchmaking":
+                    if left_live_match or task.get("play_mode") == "matchmaking" or mode == "portal":
                         # Leave Stage (see _handle_match_result -- matchmaking
-                        # always leaves, never Repeat Stage), or the Infinite
-                        # wave-limit exit, puts us back in the lobby rather
-                        # than a repeat teleport -- re-enter from scratch.
+                        # and Portal always leave, never Repeat Stage), or the
+                        # Infinite wave-limit exit, puts us back in the lobby
+                        # rather than a repeat teleport -- re-enter from
+                        # scratch. For Portal that re-entry IS the loop the
+                        # event expects: inventory -> Portals tab -> portal ->
+                        # Activate Portal, once per run.
                         if not self._run_task_setup(hwnd, stop_event, task, mode, map_name, coords,
                                                       scroll_power, scroll_nudges, webhook):
                             if stop_event.is_set():
@@ -1493,7 +1508,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         confirm -> matchmaking/solo -> teleport-in. Runs once per TASK, not
         once per repeat -- see the repeat loop in _run. Event mode takes its
         own lobby entry (nav_event -> event_gamemode -> Act) with no map or
-        difficulty, then rejoins the shared confirm/Solo/Matchmaking tail."""
+        difficulty, then rejoins the shared confirm/Solo/Matchmaking tail.
+        Portal mode comes through the inventory instead (nav_inventory ->
+        portal_tab -> the portal -> portal_activate) and rejoins that same
+        tail at the Start button -- see core/runner_portal.py."""
         if mode == "event":
             # Event is reached straight from the lobby (nav_event), not
             # through Play/gamemode/map, and has no difficulty picker -- so
@@ -1517,6 +1535,35 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if not reached_event:
                 self._log(f'[Macro] Couldn\'t reach the Event Act after {MAP_SELECT_RETRY_ATTEMPTS} '
                            f'attempts -- stopping.')
+                return False
+            if self._checkpoint(stop_event):
+                return False
+        elif mode == "portal":
+            # The portal event is entered from the INVENTORY, not through
+            # Play and not through nav_event (that one is Villian Invasion) --
+            # so there's no gamemode menu, no map carousel, no stage row and
+            # no difficulty. Activate Portal is the last click here, and the
+            # shared tail below picks it up at Start (Activate Portal is
+            # what stands in for nav_select_stage there). Same retried-from-
+            # the-lobby loop as the map/event paths, for the same reason (a
+            # failed attempt leaves nothing safe to assume about where we
+            # ended up).
+            portal = task.get("map") or PORTAL_ORDER[0]
+            reached_portal = False
+            for attempt in range(1, MAP_SELECT_RETRY_ATTEMPTS + 1):
+                if self._checkpoint(stop_event):
+                    return False
+                if attempt > 1:
+                    self._log(f"[Macro] Retrying the Portal entry from the lobby "
+                              f"(attempt {attempt}/{MAP_SELECT_RETRY_ATTEMPTS})...")
+                if self._reach_portal_activated(hwnd, stop_event, portal):
+                    reached_portal = True
+                    break
+                if stop_event.is_set():
+                    return False
+            if not reached_portal:
+                self._log(f'[Macro] Couldn\'t activate "{portal}" after {MAP_SELECT_RETRY_ATTEMPTS} '
+                          f'attempts -- stopping.')
                 return False
             if self._checkpoint(stop_event):
                 return False
@@ -1628,13 +1675,21 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
     def _enter_selected_stage(self, hwnd, stop_event: threading.Event, task: dict, mode: str,
                                 coords: dict, webhook: dict = None) -> bool:
         """Enter a stage whose final map/stage panel is already open."""
+        # Portal has already had its confirm: "Activate Portal" is what
+        # finalizes the pick there, and the event is entered from the
+        # player's own portal item rather than a queue, so there's no
+        # nav_select_stage to press and no matchmaking to enter either --
+        # it goes straight to the solo Start button below whatever the
+        # task's play_mode says.
+        is_portal = mode == "portal"
+        wants_matchmaking = task.get("play_mode") == "matchmaking" and not is_portal
         # nav_select_stage is a confirm button that finalizes the stage/
         # difficulty pick -- Start/Enter Matchmaking doesn't actually
         # appear/work until it's pressed, so it needs an actual (verified,
         # retried) click, not just a wait. Solo-only: matchmaking goes
         # straight to Enter Matchmaking instead, since this doesn't
         # reliably show up the same way for it.
-        if task.get("play_mode") != "matchmaking":
+        if not wants_matchmaking and not is_portal:
             if mode == "tournament":
                 confirm_image = "nav_entertournament"
             elif mode == "expedition":
@@ -1652,7 +1707,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # multiplayer-only and was never going to appear in Solo mode, which
         # is exactly why it kept sitting there waiting on it and looking
         # like it was "going to matchmaking" regardless of this setting.
-        if task.get("play_mode") == "matchmaking":
+        if wants_matchmaking:
             if not self._click_enter_matchmaking(hwnd, stop_event, coords, mode):
                 return False
             if self._checkpoint(stop_event):
@@ -1752,6 +1807,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._battle_started_at = time.time()
         self._battle_leave_requested = False
         self._is_expedition_match = task.get("mode") == "expedition"
+        # Fresh match, fresh portal-card attempt (see _wait_for_match_result).
+        self._portal_card_attempted = False
         self._wave_region = EXPEDITION_WAVE_REGION if self._is_expedition_match else WAVE_REGION
         self._last_reward_card_at = 0.0
         self._last_board_disruption_at = 0.0
@@ -2040,6 +2097,19 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 self._interruptible_sleep(MATCH_RESULT_POLL_INTERVAL, stop_event)
                 continue
 
+            # The portal event's 3-card offer opens BEFORE the Victory
+            # screen and closes itself ~15s later, so it has to be caught
+            # here, mid-poll -- looking for it after the result lands misses
+            # it entirely. One attempt per match either way: the flag is set
+            # before the pick, so a failed one (no click point, a swallowed
+            # click) is reported once instead of on every remaining poll.
+            if mode == "portal" and not self._portal_card_attempted \
+                    and self._portal_cards_available(hwnd):
+                self._portal_card_attempted = True
+                self._pick_portal_card(hwnd, stop_event, (task or {}).get("portal_card"))
+                if self._checkpoint(stop_event):
+                    return None
+
             try:
                 victory_match = vision.find_image(hwnd, "victory")
             except vision.TemplateNotFound as exc:
@@ -2213,6 +2283,17 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         if result == "win" and not self._clear_result_obtainment_modal(hwnd, stop_event):
             return False
 
+        # Portal: the 3-card pick already happened mid-match, before the
+        # Victory screen ever rendered (see _wait_for_match_result) -- by the
+        # time we get here the offer is closed and there's nothing left to
+        # choose. All that's left is forcing Repeat off: a portal is spent by
+        # the run that used it, so there's no stage for Repeat Stage to
+        # re-queue into. Every portal repeat goes back to the lobby and
+        # activates a portal from the inventory again (see _run_task, which
+        # re-runs _run_task_setup for it).
+        if task.get("mode") == "portal":
+            repeat = False
+
         # Matchmaking never uses Repeat Stage, even with more repeats left --
         # a matchmade lobby is a one-shot party for that specific match, not
         # something "repeat the same stage" can just re-queue into the way
@@ -2342,7 +2423,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         raw_stage = task.get("stage") or "-"
         # Raid/Event pick Acts; Story's Infinite/Mastery are named; the rest
         # are numbered stages.
-        if mode == "tower":
+        # Tower reports its floor elsewhere; Portal has no stage concept at
+        # all (a task keeps whatever stage the mode it was switched FROM
+        # left behind, which would otherwise be reported as a real one).
+        if mode in ("tower", "portal"):
             stage = "-"
         elif mode in ("raid", "event"):
             stage = f"Act {raw_stage}" if raw_stage != "-" else "-"
@@ -2357,7 +2441,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # no difficulty at all.
         if mode == "raid" or raw_stage in SPECIAL_STAGES_NO_DIFFICULTY:
             difficulty = "Hard"
-        elif mode in ("event", "tournament", "tower"):
+        elif mode in ("event", "tournament", "tower", "portal"):
             difficulty = "-"
         else:
             difficulty = task.get("difficulty") or "-"

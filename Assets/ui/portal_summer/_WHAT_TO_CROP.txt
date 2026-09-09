@@ -1,0 +1,26 @@
+portal_summer -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "portal_summer.png" in THIS folder.
+
+What to crop:
+  The Summer Portal's card in the Portals tab.
+
+Where/how:
+  Crop the part that identifies THIS portal (its art + name), not the
+  shared card frame -- the frame looks the same on every portal and
+  would match the wrong one. One folder per portal: another portal
+  needs its own name here plus entries in PORTAL_IMAGES
+  (core/runner_constants.py) and TASK_DATA.portal.maps (ui/app.js).
+
+Easiest way: Settings > General > Image Manager > Capture Roblox, drag a box
+around it, type the name "portal_summer", Save Crop -- that writes the file here and
+no restart is needed. A hand-made PNG dropped in here works too; use
+Settings > "Reload Vision Images" afterwards so the cache picks it up.
+
+Crop TIGHTLY around the element, with as little background as possible. The
+match threshold is 0.90, and a loose crop drags in pixels that change between
+runs. More crops of the SAME element can be added here under any other .png
+name -- all of them are tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).
