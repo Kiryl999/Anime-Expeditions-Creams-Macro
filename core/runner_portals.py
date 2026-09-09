@@ -88,6 +88,48 @@ class PortalsOp:
             self._keyboard.tap(keys.VK_BACK)
         return True
 
+    def _find_portal_card(self, hwnd, stop_event: threading.Event, candidates: tuple):
+        """Locate a portal card on the picker, region first then whole window.
+
+        PORTAL_SEARCHES["portals"] is a hardcoded box, and a box is only ever
+        right for the layout it was measured on. Confirmed live: a setup whose
+        search field sits 189px right of the shipped one puts the card list
+        past that box's right edge entirely, so every card search failed with
+        "No portal card found" while the card was plainly on screen -- and the
+        same crop matched fine when the picker was reached the other way.
+
+        So the box is treated as a hint, not a boundary: it is searched first
+        (it disambiguates when several portals are on screen), and only if
+        nothing is there does the search widen to the whole window. Widening
+        is safe here because the query has already filtered the list down.
+
+        Waited for rather than looked at once -- the post-victory picker opens
+        over the result screen and is still filtering for a moment.
+
+        Returns (match, name), or (None, None) when nothing was found.
+        """
+        px, py, pw, ph = (int(v) for v in PORTAL_SEARCHES["portals"])
+        try:
+            match, name = vision.wait_for_image_any(
+                hwnd, candidates, region=(px, py, pw, ph),
+                timeout=PORTAL_CARD_TIMEOUT, stop_event=stop_event)
+            if match is not None:
+                return match, name
+            if stop_event is not None and stop_event.is_set():
+                return None, None
+
+            match, name = vision.wait_for_image_any(
+                hwnd, candidates, timeout=PORTAL_CARD_TIMEOUT, stop_event=stop_event)
+            if match is not None:
+                self._log(f'[Macro] Portal card "{name}" was found outside the expected list area '
+                          f'-- your picker sits somewhere the built-in region does not cover. '
+                          f'Harmless, but it means that region no longer matches your layout.')
+                return match, name
+        except vision.TemplateNotFound as exc:
+            # Only when NOT ONE candidate has a crop on disk.
+            self._log(f"[Macro] {exc}")
+        return None, None
+
     def _select_portal_on_picker(self, hwnd, stop_event: threading.Event,
                                  query: str = "summer") -> bool:
         """Search an already-open portal picker for `query`, click the matching
@@ -116,20 +158,14 @@ class PortalsOp:
         # General > Image Manager). summer_portal stays last as the shipped
         # fallback, so an unnamed/new portal still matches the Summer card
         # the search box already filtered down to.
-        px, py, pw, ph = (int(v) for v in PORTAL_SEARCHES["portals"])
         slug = "".join(c if c.isalnum() else "_" for c in query.strip().lower()).strip("_")
         candidates = [n for n in (f"{slug}_portal", slug, "summer_portal") if n]
         candidates = list(dict.fromkeys(candidates))  # de-dup, keep priority order
-        try:
-            match, found_name = vision.find_image_any(hwnd, tuple(candidates),
-                                                      region=(px, py, pw, ph))
-        except vision.TemplateNotFound as exc:
-            # Only raised when NOT ONE of the candidates has a crop on disk.
-            self._log(f"[Macro] {exc}")
-            match = None
+        match, found_name = self._find_portal_card(hwnd, stop_event, tuple(candidates))
         if match is None:
-            self._log(f'[Macro] No "{query}" portal card found in the portal list '
-                      f'(searched for {", ".join(candidates)}).')
+            self._log(f'[Macro] No "{query}" portal card found, on the picker or anywhere on screen '
+                      f'(searched for {", ".join(candidates)}). If the card is visible, add a crop of '
+                      f'it under one of those names via Settings > General > Image Manager.')
             self._spam_back_until_gone(hwnd, stop_event)
             return False
         self._log(f'[Macro] Found the "{query}" portal card via "{found_name}" '

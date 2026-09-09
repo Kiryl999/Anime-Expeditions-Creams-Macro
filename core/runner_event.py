@@ -11,6 +11,7 @@ classes -- see core/runner.py, which composes the mixins (MacroRunner).
 import threading
 import time
 
+from . import vision
 from .runner_constants import *  # noqa: F401,F403 -- the shared constants namespace
 
 
@@ -172,11 +173,19 @@ class EventOps:
         if self._checkpoint(stop_event):
             return False
 
-        # The tier card (tier-specific crop, see the docstring above).
+        # The tier card (tier-specific crop, see the docstring above). Goes
+        # through the shared _find_portal_card so this path gets the same
+        # region-then-whole-window widening as the Inventory one -- the list
+        # region is a hardcoded box and does not survive every layout.
         self._set_status(action="Selecting Summer portal tier...")
-        if self._click_found_image(hwnd, "summer_portal", EVENT_SCREEN_TIMEOUT, stop_event, region=PORTAL_SEARCHES.get("portals")) is None:
+        match, _found = self._find_portal_card(hwnd, stop_event, ("summer_portal",))
+        if match is None:
+            self._log('[Macro] No Summer portal card found, on the picker or anywhere on screen. '
+                      'If it is visible, add a crop of it as "summer_portal" via '
+                      'Settings > General > Image Manager.')
             self._spam_back_until_gone(hwnd, stop_event)
             return False
+        vision.click_match(self._mouse, hwnd, match)
         if self._checkpoint(stop_event):
             return False
         time.sleep(SETTLE_DELAY)

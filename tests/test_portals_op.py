@@ -59,7 +59,7 @@ def test_run_portal_selection_from_inventory_backs_out_when_inventory_missing(mo
 
 def test_select_portal_on_picker_searches_and_activates(monkeypatch):
     runner = _runner()
-    monkeypatch.setattr(portal_module.vision, "find_image_any",
+    monkeypatch.setattr(portal_module.vision, "wait_for_image_any",
                         lambda *a, **k: ({"score": 0.97, "cx": 500, "cy": 250}, "summer_portal"))
     clicked = []
     monkeypatch.setattr(portal_module.vision, "click_match", lambda mouse, hwnd, match: clicked.append(match["cx"]))
@@ -77,11 +77,11 @@ def test_select_portal_on_picker_looks_for_crops_named_after_the_query(monkeypat
     runner = _runner()
     searched = []
 
-    def fake_find_any(hwnd, names, **kwargs):
+    def fake_wait_any(hwnd, names, **kwargs):
         searched.extend(names)
         return {"score": 0.97, "cx": 12, "cy": 34}, names[-1]
 
-    monkeypatch.setattr(portal_module.vision, "find_image_any", fake_find_any)
+    monkeypatch.setattr(portal_module.vision, "wait_for_image_any", fake_wait_any)
     monkeypatch.setattr(portal_module.vision, "click_match", lambda *a, **k: None)
     assert runner._select_portal_on_picker(1, threading.Event(), "Winter Rift") is True
     assert searched == ["winter_rift_portal", "winter_rift", "summer_portal"]
@@ -89,21 +89,50 @@ def test_select_portal_on_picker_looks_for_crops_named_after_the_query(monkeypat
 
 
 def test_select_portal_on_picker_backs_out_when_card_missing(monkeypatch):
+    """Not in the list region AND not anywhere on screen -- only then give up."""
     runner = _runner()
-    monkeypatch.setattr(portal_module.vision, "find_image_any", lambda *a, **k: (None, None))
+    looks = []
+
+    def fake_wait_any(hwnd, names, **kwargs):
+        looks.append(kwargs.get("region"))
+        return None, None
+
+    monkeypatch.setattr(portal_module.vision, "wait_for_image_any", fake_wait_any)
     assert runner._select_portal_on_picker(1, threading.Event(), "summer") is False
     assert runner.backs == [1]
+    assert len(looks) == 2 and looks[0] is not None and looks[1] is None,         "region first, then the whole window"
+
+
+def test_a_card_outside_the_list_region_is_still_found(monkeypatch):
+    """The live failure: a picker sitting ~189px right of the shipped layout
+    put every card past PORTAL_SEARCHES["portals"], so the region search found
+    nothing while the card was plainly on screen. The region is a hint now."""
+    runner = _runner()
+
+    def fake_wait_any(hwnd, names, **kwargs):
+        if kwargs.get("region") is not None:
+            return None, None                      # not where the box expects
+        return {"score": 0.96, "cx": 800, "cy": 250}, "summer_portal"
+
+    monkeypatch.setattr(portal_module.vision, "wait_for_image_any", fake_wait_any)
+    clicked = []
+    monkeypatch.setattr(portal_module.vision, "click_match",
+                        lambda mouse, hwnd, match: clicked.append(match["cx"]))
+
+    assert runner._select_portal_on_picker(1, threading.Event(), "summer") is True
+    assert clicked == [800]
+    assert any("outside the expected list area" in line for line in runner.logged)
 
 
 def test_select_portal_on_picker_backs_out_when_no_crop_exists_at_all(monkeypatch):
-    """find_image_any only raises when NOT ONE candidate has a crop on disk --
+    """The search only raises when NOT ONE candidate has a crop on disk --
     that is a missing-asset problem, not a stop, so it logs and backs out."""
     runner = _runner()
 
     def raise_missing(*a, **k):
         raise portal_module.vision.TemplateNotFound("no such template")
 
-    monkeypatch.setattr(portal_module.vision, "find_image_any", raise_missing)
+    monkeypatch.setattr(portal_module.vision, "wait_for_image_any", raise_missing)
     assert runner._select_portal_on_picker(1, threading.Event(), "summer") is False
     assert runner.backs == [1]
 

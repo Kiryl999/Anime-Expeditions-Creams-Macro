@@ -2,6 +2,12 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.4] - 2026-09-09
+
+### Fixed
+- **Portal cards are found even when the picker sits elsewhere**: the card search was boxed into `PORTAL_SEARCHES["portals"]`, a hardcoded region measured on one layout. A setup whose search field sits ~189px right of the shipped one puts the whole card list past that box's right edge, so every post-victory pick failed with "No portal card found" while the card was plainly on screen. The region is now a hint, not a boundary -- searched first (it still disambiguates when several portals are listed), then widened to the whole window, which is safe because the typed query has already filtered the list. The widening is logged so a mismatched region stays visible instead of silently costing runs.
+- **The card is waited for, not glanced at**: the search was a single one-shot look. The post-victory picker opens over the result screen and is still filtering for a moment, so a slow frame read as "not there". Both portal lead-ins now share one search with a timeout.
+
 ## [0.21.3] - 2026-09-09
 
 ### Fixed

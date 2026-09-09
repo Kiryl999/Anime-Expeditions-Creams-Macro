@@ -30,6 +30,14 @@ def _runner():
     runner._keyboard = kb
     runner._click_found_image = (
         lambda hwnd, name, timeout, stop_event, **k: runner.clicked.append(("image", name)) or {"score": 0.99})
+    # The tier card no longer goes through _click_found_image -- it shares
+    # PortalsOp._find_portal_card with the Inventory lead-in.
+    runner._find_portal_card = (
+        lambda hwnd, stop_event, candidates: runner.clicked.append(("card", candidates))
+        or ({"score": 0.97, "cx": 500, "cy": 250}, candidates[0]))
+    mouse = type("Mouse", (), {})()
+    mouse.click = lambda x, y, **k: runner.clicked.append(("click", x, y))
+    runner._mouse = mouse
     return runner
 
 
@@ -38,8 +46,9 @@ def test_select_summer_portal_entry_skips_select_new_portal(monkeypatch):
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
     assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=True) is True
     images = [call[1] for call in runner.clicked if call[0] == "image"]
-    assert images == ["portal_search", "summer_portal", "portal_activate"]
+    assert images == ["portal_search", "portal_activate"]
     assert "select_new_portal" not in images
+    assert ("card", ("summer_portal",)) in runner.clicked
     assert runner.typed == ["summer"]
 
 
@@ -48,7 +57,8 @@ def test_select_summer_portal_post_victory_clicks_select_new_portal_first(monkey
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
     assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=False) is True
     images = [call[1] for call in runner.clicked if call[0] == "image"]
-    assert images == ["select_new_portal", "portal_search", "summer_portal", "portal_activate"]
+    assert images == ["select_new_portal", "portal_search", "portal_activate"]
+    assert ("card", ("summer_portal",)) in runner.clicked
     assert runner.typed == ["summer"]
 
 
@@ -75,9 +85,7 @@ def test_select_summer_portal_clears_the_box_without_ever_pressing_ctrl(monkeypa
 def test_select_summer_portal_backs_out_when_tier_card_missing(monkeypatch):
     runner = _runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
-    runner._click_found_image = (
-        lambda hwnd, name, timeout, stop_event, **k: runner.clicked.append(("image", name)) or (
-            None if name == "summer_portal" else {"score": 0.99}))
+    runner._find_portal_card = lambda hwnd, stop_event, candidates: (None, None)
     assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=True) is False
     assert runner.backs == [1]
 

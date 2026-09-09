@@ -366,6 +366,11 @@ PORTAL_SEARCHES = {
 # cursor is left of everything and the backspaces clear the whole field
 # regardless of where in the text the click landed.
 PORTAL_SEARCH_CLEAR_KEYS = 32  # longest plausible leftover query, with room to spare
+# How long to wait for a portal card to appear after the search query is
+# typed. Was a single one-shot look, which lost to a picker still filtering
+# or animating in -- especially the post-victory one, which opens on top of
+# the result screen rather than on a settled inventory tab.
+PORTAL_CARD_TIMEOUT = 6.0
 
 # Tournament mode: reached through Play like Story/Raid -- its nav_tournament
 # button sits on the same gamemode menu (picked instead of Story), NOT via its
