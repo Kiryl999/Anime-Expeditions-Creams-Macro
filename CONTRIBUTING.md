@@ -81,15 +81,25 @@ GitHub Actions automates release builds when pushing an annotated Git tag adheri
 
 ### Release Steps
 
-1. Update `VERSION` if necessary.
-2. Create an annotated tag:
+1. Update `VERSION` and add this version's section to `CHANGELOG.md`.
+2. Create an annotated tag whose **message is the release notes**. The
+   workflow publishes the tag message verbatim as the GitHub release body
+   (see the "Get changelog from the tag message" step in
+   `.github/workflows/release.yml`), so a bare `-m "Release vX.Y.Z"`
+   publishes a release with no description at all:
    ```bash
-   git tag -a vX.Y.Z -m "Release vX.Y.Z"
+   # put this version's CHANGELOG section in a file first, e.g. notes.md
+   git tag -a vX.Y.Z -F notes.md --cleanup=verbatim
    ```
+   `--cleanup=verbatim` is required. Without it git treats every line
+   starting with `#` as a comment and strips it, silently eating Markdown
+   headings like `### Fixed` from the published notes.
 3. Push the tag:
    ```bash
    git push origin vX.Y.Z
    ```
+4. Check the published release actually shows the notes. A body reading
+   only "Release vX.Y.Z" means the tag message never made it.
 
 ---
 
