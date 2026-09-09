@@ -2,7 +2,7 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
-## [0.20.0] - 2026-09-09
+## [Unreleased]
 
 ### New
 - **Crimson Shore map**: the 7th Story map, added everywhere a Story map has to be listed -- the Task Builder's Story picker, Auto Challenge's Regular Challenge map setup, and Auto Bounty's destination list. Needs two crops captured before use: its carousel name label under `Assets/maps/Crimson Shore/` (to pick it) and its in-map label under `Assets/ui/Crimson Shore/` (so Regular Challenge can tell it landed there); an OCR alias covers the Daily Challenge label in the meantime.
@@ -11,6 +11,30 @@ All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 ### Improved
 - **Victory detection**: three more `victory` crops, for setups where the shipped ones do not match. Every .png in that folder is tried as a variant of the same search, so extra crops only widen what is recognized.
 - **Auto Play reference image**: an `auto_play` crop ships under `Assets/ui`, so a Detect block can key off the game's own Auto Playing indicator by name -- put the guarded action in the block's ELSE branch to skip it while auto play is running.
+
+## [0.20.0] - 2026-09-09
+
+### New
+- **Summer event**: Event mode now runs the Summer event instead of Villian Invasion. Its own lobby entry (Event -> Summer -> gamemode card) leads to two kinds, picked in the Task Builder's Event field: **Infinite & Fishing** (unlimited waves, so it takes a **Stop After Wave** target and wants an Autoplay Macro Operation) and **Portal Mode**, which picks and activates a portal on the way in and selects the next one after every win.
+- **Portals mode**: a new Task Queue mode that runs a portal from the Inventory instead of the event -- lobby -> Inventory -> Portals tab -> search -> activate, then the usual Solo/Matchmaking tail, picking a fresh portal after each win. Its **Portal Name** field is the search query *and* names the reference crop, looked up as `<name>_portal`, then `<name>`, then the shipped `summer_portal` -- so running a portal other than Summer only takes adding a crop under that name in Settings > General > Image Manager.
+- **Drag block** (Macro Manager > Setup): press at one point, move to another while held, then release -- a swipe for UI a raw Click cannot reach. Both endpoints get their own position picker, and per-block **Steps** and **Duration (ms)** let the drag be slowed until the game stops reading it as a click. Allowed in Pre Start and every battle phase.
+- **Examples picker**: Macro Manager gains an **Examples** button listing bundled routines with a description and per-phase block count. Picking one copies it into your own templates, so an example can never be saved over or deleted by accident.
+
+### Improved
+- **Expedition -- play on when extraction will not take**: in a matchmaking lobby the confirm can never register while other players keep going, and the run used to re-attempt the whole extract chain at every remaining checkpoint. After a few failed attempts it stops asking and plays the match out, still continuing each checkpoint. The counter resets per match.
+- **Expedition -- notice a Victory the party caused**: the wave watcher only ever looked for `defeat`, so a party's extraction ended the match while the run kept clicking at checkpoints that no longer existed until the result timeout. `victory` is now checked alongside it.
+- **Expedition encounters -- take the Continue when there is one**: an encounter that offers its own Continue is now cleared by that single click before any teleport, route or dialogue is attempted. It works on every map rather than the four with a bundled route, and cannot strand the character the way a recorded walk can.
+- **Expedition encounters on unmapped maps**: a map with no recorded encounter route now gets one look at that Continue instead of being written off. With neither a Continue nor a route it still says so and leaves the encounter alone.
+- **Expedition encounter dialogue** is now driven by the option's label text rather than four fixed coordinates -- the buttons move between clients and recolour between encounters, so position and colour both failed to pin them down.
+- **Auto Challenge priority**: runs after each finished task, so the :00/:30 challenge resets are taken mid-run instead of waiting for the whole queue.
+- **Wait for Wave** now releases once the counter has been unreadable past a ceiling, whether or not a reward card was seen. Cards drop for kills, so a run going badly produced none and stranded every block behind the wait -- including the deferred unit placements that would have earned them.
+
+### Fixed
+- Tower navigation now reaches the Tower screen reliably.
+- Event tasks saved against the retired Villian Invasion Acts are migrated to an event kind on load and logged, instead of stopping the run on an Act that no longer exists.
+
+### Removed
+- **Villian Invasion**, along with its Acts, its relic-gated Act 4 auto-divert (the Act 4 on-drop / runs / macro / play-mode task settings), and their reference crops.
 
 ## [0.19.1] - 2026-08-13
 
