@@ -11,7 +11,6 @@ classes -- see core/runner.py, which composes the mixins (MacroRunner).
 import threading
 import time
 
-from . import keys
 from .runner_constants import *  # noqa: F401,F403 -- the shared constants namespace
 
 
@@ -161,14 +160,13 @@ class EventOps:
             time.sleep(SETTLE_DELAY)
 
         # Search the portal grid for Summer (other portals exist, and the box
-        # may still hold a previous query) -- Ctrl+A to select, Delete to
-        # clear, then type. Same search-box recipe the settings search uses.
+        # may still hold a previous query). Aiming and clearing both live in
+        # _focus_portal_search -- see it for why this no longer clicks the
+        # crop centre blindly and no longer clears with Ctrl+A.
         self._set_status(action="Searching Summer portals...")
-        if self._click_found_image(hwnd, "portal_search", EVENT_SCREEN_TIMEOUT, stop_event, region=PORTAL_SEARCHES.get("search")) is None:
+        if not self._focus_portal_search(hwnd, stop_event):
             self._spam_back_until_gone(hwnd, stop_event)
             return False
-        self._keyboard.combo(keys.VK_CONTROL, ord("A"))
-        self._keyboard.tap(keys.VK_DELETE)
         self._keyboard.type_text("summer")
         time.sleep(SETTLE_DELAY)
         if self._checkpoint(stop_event):

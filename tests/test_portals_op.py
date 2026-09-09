@@ -6,6 +6,7 @@ import threading
 import core.runner as runner_module
 import core.runner_portals as portal_module
 from core.runner import MacroRunner
+from core.runner_constants import DEFAULT_COORDS
 
 
 def _runner():
@@ -20,6 +21,8 @@ def _runner():
     runner._log = lambda message: runner.logged.append(message)
     runner._spam_back_until_gone = lambda hwnd, stop: runner.backs.append(hwnd)
     runner._click_ref = lambda hwnd, x, y, **k: runner.clicked.append(("ref", x, y))
+    # A real MacroRunner always has this; the fixture skips __init__.
+    runner._coords = dict(DEFAULT_COORDS)
     runner._interruptible_sleep = lambda *a, **k: None
     runner._mouse = type("Mouse", (), {})()
     runner._click_found_image = (
@@ -61,7 +64,7 @@ def test_select_portal_on_picker_searches_and_activates(monkeypatch):
     clicked = []
     monkeypatch.setattr(portal_module.vision, "click_match", lambda mouse, hwnd, match: clicked.append(match["cx"]))
     assert runner._select_portal_on_picker(1, threading.Event(), "summer") is True
-    assert any(c[0] == "combo" for c in runner.clicked)      # Ctrl+A
+    assert not any(c[0] == "combo" for c in runner.clicked)  # never Ctrl -- moves the Roblox camera
     assert runner.typed == ["summer"]
     assert clicked == [500]                                   # the found portal card
     assert ("image", "portal_activate") in runner.clicked     # confirm

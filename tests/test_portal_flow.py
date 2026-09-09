@@ -7,6 +7,7 @@ import threading
 
 import core.runner as runner_module
 from core.runner import MacroRunner
+from core.runner_constants import DEFAULT_COORDS
 
 
 def _runner():
@@ -19,6 +20,9 @@ def _runner():
     runner._set_status = lambda **kw: None
     runner._log = lambda message: runner.logged.append(message)
     runner._spam_back_until_gone = lambda hwnd, stop_event: runner.backs.append(hwnd)
+    # A real MacroRunner always has these; the fixture skips __init__.
+    runner._coords = dict(DEFAULT_COORDS)
+    runner._click_ref = lambda hwnd, x, y, **k: runner.clicked.append(("ref", x, y))
     kb = type("Kb", (), {})()
     kb.combo = lambda *a, **k: runner.clicked.append(("combo", a))
     kb.tap = lambda vk, **k: runner.clicked.append(("tap", vk))
@@ -48,12 +52,24 @@ def test_select_summer_portal_post_victory_clicks_select_new_portal_first(monkey
     assert runner.typed == ["summer"]
 
 
-def test_select_summer_portal_bad_start_tier_card_clears_and_types(monkeypatch):
+def test_select_summer_portal_clears_the_box_without_ever_pressing_ctrl(monkeypatch):
+    """The box is cleared with HOME + backspaces, never Ctrl+A.
+
+    The click into it is aimed at a crop of the placeholder word "Search...",
+    so it can miss -- and a Ctrl that misses reaches Roblox, where it toggles
+    the camera and leaves the rest of the run fighting the view. Reported
+    live. Backspace and HOME do nothing when they miss.
+    """
     runner = _runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
     runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=True)
-    assert ("combo", (runner_module.keys.VK_CONTROL, ord("A"))) in runner.clicked  # noqa: E721
-    assert any(call[0] == "tap" for call in runner.clicked)
+
+    assert not any(call[0] == "combo" for call in runner.clicked), "no key combo may be sent here"
+    taps = [call[1] for call in runner.clicked if call[0] == "tap"]
+    assert runner_module.keys.VK_CONTROL not in taps
+    assert taps and taps[0] == runner_module.keys.VK_HOME, "HOME first, so backspaces clear the whole field"
+    assert taps.count(runner_module.keys.VK_BACK) >= len("summer")
+    assert runner.typed == ["summer"]
 
 
 def test_select_summer_portal_backs_out_when_tier_card_missing(monkeypatch):

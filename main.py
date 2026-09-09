@@ -194,6 +194,9 @@ MACRO_COORD_DEFAULTS = {
     # inside the button for layouts where its lower/inner area registers more
     # reliably.
     "team_button_x": None, "team_button_y": None,
+    # Portal picker search box -- Auto (None) matches the portal_search crop
+    # and clicks its centre. See DEFAULT_COORDS for why that can miss.
+    "portal_search_x": None, "portal_search_y": None,
     "screen_middle_x": 576, "screen_middle_y": 378,
     "unit_info_reset_x": 3, "unit_info_reset_y": 3,
 }
@@ -888,12 +891,18 @@ class Api:
             cfg.update(clean)
         return {"ok": True, "saved": list(clean)}
 
+    # Coordinates that mean "Auto" when unset, so the UI can offer an Auto
+    # button next to their Pick. Every other macro coordinate has a real
+    # default and is reset through reset_macro_coords instead.
+    OPTIONAL_COORD_PREFIXES = ("team_button", "portal_search")
+
     def clear_macro_coord(self, prefix: str) -> dict:
         """Clear an optional coordinate override back to automatic behavior."""
-        if prefix != "team_button":
+        if prefix not in self.OPTIONAL_COORD_PREFIXES:
             return {"ok": False, "reason": "not_optional"}
-        cfg.update({"team_button_x": None, "team_button_y": None})
-        return {"ok": True, "cleared": ["team_button_x", "team_button_y"]}
+        keys_cleared = [f"{prefix}_x", f"{prefix}_y"]
+        cfg.update({k: None for k in keys_cleared})
+        return {"ok": True, "cleared": keys_cleared}
 
     def reset_macro_coords(self) -> dict:
         cfg.update(dict(MACRO_COORD_DEFAULTS))

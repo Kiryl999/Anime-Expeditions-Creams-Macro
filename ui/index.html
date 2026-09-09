@@ -1873,6 +1873,19 @@
 
           <div class="setting-row" style="padding: 14px;">
             <div>
+              <div class="setting-label">Portal Search Box</div>
+              <div class="setting-desc">Optional manual point inside the portal picker's search field. Auto matches the shipped "Search..." crop and clicks its center, which sits at the left end of the bar and can land outside the field -- pick a point in the middle of the bar if the macro types into nothing.</div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <input id="coord-portal_search_x" class="block-input" style="width: 56px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_search_x', this.value)">
+              <input id="coord-portal_search_y" class="block-input" style="width: 56px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_search_y', this.value)">
+              <button onclick="openCoordPicker('portal_search')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Capture the Roblox screen and pick a point inside the portal search box">Pick</button>
+              <button onclick="clearMacroCoord('portal_search')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Use the detected Search... crop center again">Auto</button>
+            </div>
+          </div>
+
+          <div class="setting-row" style="padding: 14px;">
+            <div>
               <div class="setting-label">Neutral Clicks</div>
               <div class="setting-desc">Middle: dismisses popups. Corner: closes the unit info panel.</div>
             </div>

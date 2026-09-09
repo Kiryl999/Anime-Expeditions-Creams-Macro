@@ -4495,6 +4495,7 @@ const MACRO_COORD_KEYS = [
   'expedition_difficulty_x', 'expedition_difficulty_y',
   'team_loadout_x', 'team_loadout_y', 'team_loadout_row_height',
   'team_button_x', 'team_button_y',
+  'portal_search_x', 'portal_search_y',
   'screen_middle_x', 'screen_middle_y',
   'unit_info_reset_x', 'unit_info_reset_y',
 ];

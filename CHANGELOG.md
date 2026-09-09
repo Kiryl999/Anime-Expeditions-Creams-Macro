@@ -2,6 +2,15 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.3] - 2026-09-09
+
+### Fixed
+- **Portal search no longer presses Ctrl**: the picker's search box was cleared with Ctrl+A + Delete. That is safe only for a click that landed -- when the click missed, the Ctrl went to Roblox instead and changed the camera view, which nothing in the run recovers from. Both portal lead-ins now clear with Home + backspaces, which do nothing at all when they miss.
+- **Portal search aims at the field, not the placeholder**: the click is matched against the shipped `portal_search` crop, which is the 47x10 placeholder word "Search..." at the left end of the bar -- so its center sits near the left edge of the input and lands outside it on layouts where the bar sits differently, and the query was typed into nothing.
+
+### New
+- **Portal Search Box coordinate** (Settings > Debug > Macro Coordinates): pick a point inside the search field when the automatic aim misses, the same Auto-or-fixed shape the Teams button uses. Auto keeps the previous crop-matching behavior.
+
 ## [0.21.2] - 2026-09-09
 
 ### Changed

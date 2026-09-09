@@ -356,6 +356,16 @@ PORTAL_SEARCHES = {
     "search": (433, 174, 492 - 433, 188 - 174),
     "portals": (344, 208, 687 - 344, 296 - 208),
 }
+# Backspaces sent to empty the portal search box before typing a query.
+# Deliberately NOT the Ctrl+A + Delete every other input in this codebase
+# uses (crafting, fuel, shop, the settings search): those all type into a
+# box the click definitely landed in, whereas the portal box is aimed at a
+# crop of the word "Search..." and can miss -- and a Ctrl that misses goes
+# to Roblox, which toggles the camera and leaves the whole run fighting the
+# view. Backspace is inert when it misses. HOME is pressed first so the
+# cursor is left of everything and the backspaces clear the whole field
+# regardless of where in the text the click landed.
+PORTAL_SEARCH_CLEAR_KEYS = 32  # longest plausible leftover query, with room to spare
 
 # Tournament mode: reached through Play like Story/Raid -- its nav_tournament
 # button sits on the same gamemode menu (picked instead of Story), NOT via its
@@ -912,6 +922,15 @@ DEFAULT_COORDS = {
     # this from a live screenshot when a user's button needs a lower/safer
     # click point than the matched crop's center.
     "team_button_x": None, "team_button_y": None,
+    # Portal picker's search box. None = Auto: match the shipped
+    # portal_search crop inside PORTAL_SEARCHES["search"] and click its
+    # centre. That crop is the placeholder word "Search...", which sits at
+    # the LEFT end of the bar, so on a layout where the bar sits differently
+    # the centre of that word can land outside the input -- set a point here
+    # (Settings > Debug > Macro Coordinates > "Portal Search" > Pick) to aim
+    # at the field itself instead. Left empty rather than guessed: nothing
+    # in the repo can measure where the box really is on a given setup.
+    "portal_search_x": None, "portal_search_y": None,
     "screen_middle_x": SCREEN_MIDDLE_CLICK[0], "screen_middle_y": SCREEN_MIDDLE_CLICK[1],
     "unit_info_reset_x": UNIT_INFO_RESET_CLICK[0], "unit_info_reset_y": UNIT_INFO_RESET_CLICK[1],
     "daily_challenge_tab_x": 250, "daily_challenge_tab_y": 315,

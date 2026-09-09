@@ -45,6 +45,49 @@ class PortalsOp:
 
         return self._select_portal_on_picker(hwnd, stop_event, query)
 
+    def _focus_portal_search(self, hwnd, stop_event: threading.Event) -> bool:
+        """Click into the portal picker's search box and empty it.
+
+        Shared by both lead-ins -- the Event kind (EventOps._select_summer_portal)
+        and the Inventory tab (_select_portal_on_picker) -- because both land
+        on the same picker screen and both got this wrong in their own way.
+
+        Aiming. A saved point (Settings > Debug > Macro Coordinates > "Portal
+        Search") wins outright. Otherwise the shipped `portal_search` crop is
+        matched inside PORTAL_SEARCHES["search"] and its CENTRE is clicked --
+        but that crop is the placeholder word "Search...", 47x10px at the LEFT
+        end of the bar, so its centre is near the left edge of the input and
+        lands outside it entirely on a layout where the bar sits differently.
+        Reported live as "clicks too far left". Nothing here can measure the
+        real field, which is exactly why the override exists rather than a
+        different hardcoded number.
+
+        Clearing. HOME, then backspaces -- NOT the Ctrl+A + Delete used by
+        every other input in this codebase. Those type into a box the click
+        certainly landed in; this one can miss, and a Ctrl that misses reaches
+        Roblox, where it toggles the camera and leaves the rest of the run
+        fighting the view. Backspace and HOME are inert when they miss.
+        """
+        point = self._optional_cxy("portal_search")
+        if point is not None:
+            self._log(f"[Macro] Using the manual portal-search click point "
+                      f"({point[0]}, {point[1]}).")
+            self._click_ref(hwnd, point[0], point[1])
+        elif self._click_found_image(hwnd, "portal_search", EVENT_SCREEN_TIMEOUT, stop_event,
+                                      region=PORTAL_SEARCHES.get("search")) is None:
+            self._log("[Macro] Couldn't find the portal search box. If it is visibly on screen, "
+                      "set its click point under Settings > Debug > Macro Coordinates "
+                      '("Portal Search") -- the shipped crop is the "Search..." placeholder and '
+                      "does not survive every layout.")
+            return False
+        if self._checkpoint(stop_event):
+            return False
+
+        self._keyboard.tap(keys.VK_HOME)
+        for _ in range(PORTAL_SEARCH_CLEAR_KEYS):
+            self._keyboard.tap(keys.VK_BACK)
+        return True
+
     def _select_portal_on_picker(self, hwnd, stop_event: threading.Event,
                                  query: str = "summer") -> bool:
         """Search an already-open portal picker for `query`, click the matching
@@ -56,11 +99,11 @@ class PortalsOp:
         """
         self._set_status(action="Selecting portal...")
 
-        # Focus the search box (region center), clear any prior query, type.
-        sx, sy, sw, sh = (int(v) for v in PORTAL_SEARCHES["search"])
-        self._click_ref(hwnd, sx + sw // 2, sy + sh // 2)
-        self._keyboard.combo(keys.VK_CONTROL, ord("A"))
-        self._keyboard.tap(keys.VK_DELETE)
+        # Focus + clear the search box, then type. Was a blind click on the
+        # region centre with no check that anything was hit at all.
+        if not self._focus_portal_search(hwnd, stop_event):
+            self._spam_back_until_gone(hwnd, stop_event)
+            return False
         self._keyboard.type_text(query)
         self._interruptible_sleep(SETTLE_DELAY, stop_event)
         if self._checkpoint(stop_event):
