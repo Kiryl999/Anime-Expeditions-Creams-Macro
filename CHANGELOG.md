@@ -5,6 +5,7 @@ All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 ## [Unreleased]
 
 ### New
+- **Crimson Shore map**: the 7th Story map, added everywhere a Story map has to be listed -- the Task Builder's Story picker, Auto Challenge's Regular Challenge map setup, and Auto Bounty's destination list. Needs two crops captured before use: its carousel name label under `Assets/maps/Crimson Shore/` (to pick it) and its in-map label under `Assets/ui/Crimson Shore/` (so Regular Challenge can tell it landed there); an OCR alias covers the Daily Challenge label in the meantime.
 - **Raid: Snowy Castle**: the second raid story is now selectable as a Raid map, alongside Spirit City. It shares the carousel, the 3 Acts and the Hard-locked difficulty with the first one, so the only thing it needs is its own name-label crop under `Assets/maps/Snowy Castle/` (Settings > General > Image Manager > Map Names).
 
 ## [0.19.1] - 2026-08-13

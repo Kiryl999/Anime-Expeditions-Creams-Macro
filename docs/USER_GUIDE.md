@@ -218,6 +218,20 @@ Regular Challenge slots, select Solo or Matchmaking, and assign an operation
 for each map that may appear. Challenge automation runs before the normal task
 queue.
 
+Regular Challenge picks the map for you, so every Story map needs its own
+Macro Operation assigned -- including **Crimson Shore**, the 7th map. Two
+separate crops are involved and they come from different screens:
+
+| Folder | Cropped from | Used for |
+| --- | --- | --- |
+| `Assets/maps/Crimson Shore` | the Play > Story card carousel | picking the map yourself in a task |
+| `Assets/ui/Crimson Shore` | the in-battle HUD, once you are on the map | Regular Challenge recognizing which map it landed on |
+
+Without the second one, Crimson Shore is skipped by the image search and
+detection falls back to reading the map label with OCR. The other maps keep
+matching normally -- a map with no crop is skipped, not fatal -- but the OCR
+path is the slower and less reliable of the two.
+
 ## 6. Start and monitor a run
 
 1. Put the character in the lobby and close unexpected popups.

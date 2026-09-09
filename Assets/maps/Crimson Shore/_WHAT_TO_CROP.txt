@@ -1,0 +1,34 @@
+Crimson Shore -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "Crimson Shore.png" in THIS folder.
+
+What to crop:
+  The map's NAME LABEL in the Play > Story card carousel -- the bold
+  white "Crimson Shore" text under the card's thumbnail art.
+
+Where/how:
+  Lobby > Play > Story, then scroll the carousel until the Crimson Shore
+  card is visible. Crop ONLY the name text (a little margin is fine) --
+  not the thumbnail art, not the whole card. The art changes with the
+  card's hover/selected state; the label does not, which is why the
+  label is what gets matched.
+
+  This folder is what lets a TASK pick the map by hand. It is NOT the
+  same crop as Assets/ui/Crimson Shore/, which answers "which map did
+  Regular Challenge land on" after teleporting in. Both are needed, and
+  they are cropped from different screens.
+
+Easiest way: Settings > General > Image Manager > the "Map Names" tab >
+Capture Roblox, drag a box around the label, type the name "Crimson Shore",
+Save Crop -- that writes the file here and no restart is needed. A hand-made
+PNG dropped in here works too; use Settings > "Reload Vision Images"
+afterwards so the cache picks it up.
+
+Crop TIGHTLY around the label, with as little background as possible. Map
+labels match at 0.78 (core/stage_select.py's MATCH_THRESHOLD, looser than the
+0.90 used for UI buttons), and a loose crop drags in carousel background that
+shifts as the row scrolls. More crops of the SAME label can be added here
+under any other .png name -- all of them are tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).
