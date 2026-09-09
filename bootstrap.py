@@ -28,7 +28,10 @@ import zipfile
 import requests
 
 APP_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
-GITHUB_REPO = "Cweamy/Anime-Expeditions-Creams-Macro"
+# Same fork as core.updater.GITHUB_REPO -- the bootstrapper fetches the
+# release zip, so pointing it upstream would install a different build
+# than the one this repo publishes.
+GITHUB_REPO = "Kiryl999/Anime-Expeditions-Creams-Macro"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 # Must match release.yml's packaged Windows zip name exactly (dashes on

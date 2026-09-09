@@ -2,6 +2,12 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.2] - 2026-09-09
+
+### Changed
+- **Updates now come from this fork**: the in-app updater and the bootstrapper pointed at the upstream repository, so the first upstream release numbered above this one would have been offered as an update and swapped this build for theirs -- silently dropping everything that only exists here (the extra maps, the extra crops, the Snowy Castle close-panel fix). Both now read this fork's releases, as does the "download the latest .zip" link in the troubleshooting panel. Upstream releases are no longer offered directly; picking them up means merging upstream in and cutting a release here.
+- **One manual install is needed to switch over**: the currently installed build has the old target compiled in, so it cannot find this release on its own. Install this version's zip by hand once -- every update after it is automatic.
+
 ## [0.21.1] - 2026-09-09
 
 ### Fixed

@@ -43,7 +43,17 @@ import requests
 
 from . import constants
 
-GITHUB_REPO = "Cweamy/Anime-Expeditions-Creams-Macro"
+# This fork's own releases, NOT upstream's. The updater swaps the running
+# build for whatever this repo publishes, so pointing it at Cweamy's repo
+# would hand an upstream build to someone running this fork and silently
+# drop everything that only exists here (extra maps, extra crops, local
+# fixes) the first time upstream's version number went above this one.
+#
+# Consequence worth knowing: upstream releases are no longer offered at
+# all. Picking them up means merging upstream into this fork and cutting a
+# release here, which is also what keeps the version numbers ordered --
+# see updater._parse_version, which compares dotted tuples.
+GITHUB_REPO = "Kiryl999/Anime-Expeditions-Creams-Macro"
 RELEASES_LATEST_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 # The packaged release zip (exe + the loose Assets/ folder side by side,
