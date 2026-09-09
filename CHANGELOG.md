@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.5] - 2026-09-09
+
+### New
+- **Portal Card List box** (Settings > Debug > Macro Coordinates): set the area the portal cards are searched in. **Pick** now takes two clicks for a box -- the top-left corner, then the opposite one -- and writes x, y, width and height. Auto keeps the built-in box, which still works everywhere thanks to the whole-window fallback, but pays that fallback's timeout on every single portal pick when the box does not fit; setting it once makes the first pass hit instead. The log line that reports the widening now names the box it searched and says how many seconds each pick is losing.
+
 ## [0.21.4] - 2026-09-09
 
 ### Fixed

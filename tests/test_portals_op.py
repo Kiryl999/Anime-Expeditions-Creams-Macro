@@ -121,7 +121,7 @@ def test_a_card_outside_the_list_region_is_still_found(monkeypatch):
 
     assert runner._select_portal_on_picker(1, threading.Event(), "summer") is True
     assert clicked == [800]
-    assert any("outside the expected list area" in line for line in runner.logged)
+    assert any("outside the searched list area" in line for line in runner.logged)
 
 
 def test_select_portal_on_picker_backs_out_when_no_crop_exists_at_all(monkeypatch):

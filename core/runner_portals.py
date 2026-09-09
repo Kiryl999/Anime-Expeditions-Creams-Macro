@@ -88,6 +88,27 @@ class PortalsOp:
             self._keyboard.tap(keys.VK_BACK)
         return True
 
+    def _portal_list_region(self):
+        """The box to look for portal cards in, in the docked window's
+        1152x756 reference space.
+
+        A saved override (Settings > Debug > Macro Coordinates > "Portal Card
+        List") wins; otherwise the built-in PORTAL_SEARCHES["portals"]. All
+        four values have to be set for an override to count -- a half-filled
+        box is treated as unset rather than guessed at, the same rule the
+        other optional coordinates use.
+        """
+        values = [self._coords.get(f"portal_list_{axis}") for axis in ("x", "y", "w", "h")]
+        if all(v not in (None, "") for v in values):
+            try:
+                x, y, w, h = (int(v) for v in values)
+            except (TypeError, ValueError):
+                pass
+            else:
+                if w > 0 and h > 0:
+                    return (x, y, w, h)
+        return tuple(int(v) for v in PORTAL_SEARCHES["portals"])
+
     def _find_portal_card(self, hwnd, stop_event: threading.Event, candidates: tuple):
         """Locate a portal card on the picker, region first then whole window.
 
@@ -108,10 +129,10 @@ class PortalsOp:
 
         Returns (match, name), or (None, None) when nothing was found.
         """
-        px, py, pw, ph = (int(v) for v in PORTAL_SEARCHES["portals"])
+        region = self._portal_list_region()
         try:
             match, name = vision.wait_for_image_any(
-                hwnd, candidates, region=(px, py, pw, ph),
+                hwnd, candidates, region=region,
                 timeout=PORTAL_CARD_TIMEOUT, stop_event=stop_event)
             if match is not None:
                 return match, name
@@ -121,9 +142,11 @@ class PortalsOp:
             match, name = vision.wait_for_image_any(
                 hwnd, candidates, timeout=PORTAL_CARD_TIMEOUT, stop_event=stop_event)
             if match is not None:
-                self._log(f'[Macro] Portal card "{name}" was found outside the expected list area '
-                          f'-- your picker sits somewhere the built-in region does not cover. '
-                          f'Harmless, but it means that region no longer matches your layout.')
+                self._log(f'[Macro] Portal card "{name}" was found outside the searched list area '
+                          f'{region} -- your picker sits somewhere it does not cover. The pick still '
+                          f'works, but every one of them now wastes {PORTAL_CARD_TIMEOUT:.0f}s on that '
+                          f'first pass. Set the box under Settings > Debug > Macro Coordinates '
+                          f'("Portal Card List") to get those seconds back.')
                 return match, name
         except vision.TemplateNotFound as exc:
             # Only when NOT ONE candidate has a crop on disk.

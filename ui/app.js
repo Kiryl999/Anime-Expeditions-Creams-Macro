@@ -4496,6 +4496,7 @@ const MACRO_COORD_KEYS = [
   'team_loadout_x', 'team_loadout_y', 'team_loadout_row_height',
   'team_button_x', 'team_button_y',
   'portal_search_x', 'portal_search_y',
+  'portal_list_x', 'portal_list_y', 'portal_list_w', 'portal_list_h',
   'screen_middle_x', 'screen_middle_y',
   'unit_info_reset_x', 'unit_info_reset_y',
 ];
@@ -4563,7 +4564,13 @@ async function openCoordPicker(prefix) {
   // suffixes are probed rather than reconstructed.
   puState.coordHeightKey = [`${prefix}_height`, `${prefix}_row_height`]
     .find(k => document.getElementById(`coord-${k}`)) || null;
-  puState.coordStep = puState.coordHeightKey ? 0 : null;
+  // A target with _w and _h companions is a REGION, not a point: the two
+  // clicks are its opposite corners rather than two rows. Same two-step
+  // machinery, different arithmetic at the end.
+  puState.coordIsRegion = !puState.coordHeightKey
+    && !!document.getElementById(`coord-${prefix}_w`)
+    && !!document.getElementById(`coord-${prefix}_h`);
+  puState.coordStep = (puState.coordHeightKey || puState.coordIsRegion) ? 0 : null;
   puState.coordFirst = null;
   puState.coordPreview = null;
   const xEl = document.getElementById(`coord-${prefix}_x`);
@@ -4579,7 +4586,9 @@ async function openCoordPicker(prefix) {
   grid.innerHTML = '<div class="rh-empty">Capturing the Roblox screen...</div>';
   document.getElementById('pu-pos-readout').textContent = puState.coordHeightKey
     ? 'Click the FIRST row (e.g. Level 1 / Act 1 / Loadout 1)'
-    : (puState.markX != null ? `X ${puState.markX}, Y ${puState.markY}` : 'Not set');
+    : puState.coordIsRegion
+      ? 'Click the TOP-LEFT corner of the area'
+      : (puState.markX != null ? `X ${puState.markX}, Y ${puState.markY}` : 'Not set');
   document.getElementById('pu-modal').style.display = 'flex';
 
   const ok = await usePlaceUnitRobloxScreen();
@@ -5534,7 +5543,10 @@ let puState = {
   // setting key when the target has one, coordStep is 0 (awaiting row 1) or
   // 1 (awaiting row 2), coordFirst is row 1's point, coordPreview the derived
   // row markers.
+  // coordIsRegion turns the same two-step flow into a corner pick that
+  // writes x/y/w/h instead of a point plus a row height.
   coordHeightKey: null, coordStep: null, coordFirst: null, coordPreview: null,
+  coordIsRegion: false,
 };
 
 // Remembers whichever map was picked last (see selectPlaceUnitMap), across
@@ -5625,6 +5637,7 @@ function closePlaceUnitModal() {
   puState.coordHeightKey = null;
   puState.coordStep = null;
   puState.coordFirst = null;
+  puState.coordIsRegion = false;
   puState.coordPreview = null;
   restoreGameIfDashboard();  // see isBlockingOverlayOpen -- game stays hidden while this modal is up
 }
@@ -5880,6 +5893,40 @@ function applyPlaceUnitPosition() {
       puState.coordPreview = rows;
       puState.coordStep = 0;  // click again to redo from row 1
       readout.textContent = `Rows set: base (X ${puState.coordFirst.x}, Y ${puState.coordFirst.y}), row height ${h}px. Click row 1 again to redo.`;
+      return;
+    }
+
+    if (puState.coordIsRegion) {
+      // Corner pick. Step 0 remembers one corner; step 1 turns the pair into
+      // x/y/w/h. Either diagonal works -- min/abs rather than assuming the
+      // second click is down-and-right of the first.
+      if (puState.coordStep === 0) {
+        puState.coordFirst = { x: puState.markX, y: puState.markY };
+        puState.coordPreview = [{ x: puState.markX, y: puState.markY, label: '1' }];
+        puState.coordStep = 1;
+        readout.textContent = `Corner 1 set (X ${puState.markX}, Y ${puState.markY}). Now click the OPPOSITE corner.`;
+        return;
+      }
+      const rx = Math.min(puState.coordFirst.x, puState.markX);
+      const ry = Math.min(puState.coordFirst.y, puState.markY);
+      const rw = Math.abs(puState.markX - puState.coordFirst.x);
+      const rh = Math.abs(puState.markY - puState.coordFirst.y);
+      if (rw < 1 || rh < 1) {
+        readout.textContent = 'That corner is the same point -- click a corner across from the first one.';
+        return;
+      }
+      const region = { [`${p}_x`]: rx, [`${p}_y`]: ry, [`${p}_w`]: rw, [`${p}_h`]: rh };
+      for (const [key, value] of Object.entries(region)) {
+        const el = document.getElementById(`coord-${key}`);
+        if (el) el.value = value;
+      }
+      saveMacroCoords(region);
+      puState.coordPreview = [
+        { x: rx, y: ry, label: 'TL' }, { x: rx + rw, y: ry, label: 'TR' },
+        { x: rx, y: ry + rh, label: 'BL' }, { x: rx + rw, y: ry + rh, label: 'BR' },
+      ];
+      puState.coordStep = 0;  // click again to redo from corner 1
+      readout.textContent = `Area set: X ${rx}, Y ${ry}, ${rw}x${rh}. Click a corner again to redo.`;
       return;
     }
 

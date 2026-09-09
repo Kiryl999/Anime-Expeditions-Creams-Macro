@@ -197,6 +197,11 @@ MACRO_COORD_DEFAULTS = {
     # Portal picker search box -- Auto (None) matches the portal_search crop
     # and clicks its centre. See DEFAULT_COORDS for why that can miss.
     "portal_search_x": None, "portal_search_y": None,
+    # Portal picker card list (x, y, w, h). Auto (all None) uses the built-in
+    # region and falls back to a whole-window search when it misses -- which
+    # costs a full timeout on every pick. See DEFAULT_COORDS.
+    "portal_list_x": None, "portal_list_y": None,
+    "portal_list_w": None, "portal_list_h": None,
     "screen_middle_x": 576, "screen_middle_y": 378,
     "unit_info_reset_x": 3, "unit_info_reset_y": 3,
 }
@@ -894,13 +899,20 @@ class Api:
     # Coordinates that mean "Auto" when unset, so the UI can offer an Auto
     # button next to their Pick. Every other macro coordinate has a real
     # default and is reset through reset_macro_coords instead.
-    OPTIONAL_COORD_PREFIXES = ("team_button", "portal_search")
+    OPTIONAL_COORD_PREFIXES = ("team_button", "portal_search", "portal_list")
 
     def clear_macro_coord(self, prefix: str) -> dict:
-        """Clear an optional coordinate override back to automatic behavior."""
+        """Clear an optional coordinate override back to automatic behavior.
+
+        Clears every suffix the prefix actually has rather than assuming x/y:
+        a point has two, a region (portal_list) has four, and clearing only
+        half of a region would leave it in the half-set state the readers
+        treat as unset anyway -- but with stale numbers still on screen.
+        """
         if prefix not in self.OPTIONAL_COORD_PREFIXES:
             return {"ok": False, "reason": "not_optional"}
-        keys_cleared = [f"{prefix}_x", f"{prefix}_y"]
+        keys_cleared = [key for key in MACRO_COORD_DEFAULTS
+                        if key.startswith(f"{prefix}_") and MACRO_COORD_DEFAULTS[key] is None]
         cfg.update({k: None for k in keys_cleared})
         return {"ok": True, "cleared": keys_cleared}
 

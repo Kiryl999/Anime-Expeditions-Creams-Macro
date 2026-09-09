@@ -1886,6 +1886,21 @@
 
           <div class="setting-row" style="padding: 14px;">
             <div>
+              <div class="setting-label">Portal Card List</div>
+              <div class="setting-desc">Optional box the portal cards are searched in (x, y, width, height). Pick asks for two corners: click the top-left of the card row, then the bottom-right. Auto uses the built-in box and widens to the whole screen when it misses -- which still works, but wastes a few seconds on every portal pick.</div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <input id="coord-portal_list_x" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_list_x', this.value)">
+              <input id="coord-portal_list_y" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_list_y', this.value)">
+              <input id="coord-portal_list_w" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_list_w', this.value)">
+              <input id="coord-portal_list_h" class="block-input" style="width: 52px;" type="number" placeholder="Auto" onchange="setMacroCoord('portal_list_h', this.value)">
+              <button onclick="openCoordPicker('portal_list')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Capture the Roblox screen, then click the top-left and bottom-right corners of the portal card row">Pick</button>
+              <button onclick="clearMacroCoord('portal_list')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Use the built-in card list box again">Auto</button>
+            </div>
+          </div>
+
+          <div class="setting-row" style="padding: 14px;">
+            <div>
               <div class="setting-label">Neutral Clicks</div>
               <div class="setting-desc">Middle: dismisses popups. Corner: closes the unit info panel.</div>
             </div>

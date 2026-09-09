@@ -109,3 +109,62 @@ def test_both_portal_lead_ins_go_through_it(monkeypatch):
                  event_module.EventOps._select_summer_portal):
         assert "_focus_portal_search" in inspect.getsource(func)
         assert "VK_CONTROL" not in inspect.getsource(func)
+
+
+# ---------------------------------------------------------------------------
+# The card-list box
+# ---------------------------------------------------------------------------
+
+def test_the_built_in_box_is_used_when_nothing_is_saved():
+    from core.runner_constants import PORTAL_SEARCHES
+
+    runner = _runner()
+
+    assert runner._portal_list_region() == tuple(int(v) for v in PORTAL_SEARCHES["portals"])
+
+
+def test_a_saved_box_replaces_the_built_in_one():
+    runner = _runner({"portal_list_x": 533, "portal_list_y": 208,
+                      "portal_list_w": 343, "portal_list_h": 88})
+
+    assert runner._portal_list_region() == (533, 208, 343, 88)
+
+
+def test_a_half_set_box_falls_back_instead_of_guessing():
+    from core.runner_constants import PORTAL_SEARCHES
+
+    runner = _runner({"portal_list_x": 533, "portal_list_y": 208})
+
+    assert runner._portal_list_region() == tuple(int(v) for v in PORTAL_SEARCHES["portals"])
+
+
+def test_a_zero_sized_box_falls_back():
+    """Width or height of zero would match nothing at all, which reads as
+    'the card is gone' rather than 'your box is wrong'."""
+    from core.runner_constants import PORTAL_SEARCHES
+
+    runner = _runner({"portal_list_x": 533, "portal_list_y": 208,
+                      "portal_list_w": 0, "portal_list_h": 88})
+
+    assert runner._portal_list_region() == tuple(int(v) for v in PORTAL_SEARCHES["portals"])
+
+
+def test_the_card_search_looks_in_the_saved_box(monkeypatch):
+    """The whole point of the override: the first pass has to hit, so no pick
+    pays the fallback timeout any more."""
+    import core.runner_portals as portal_module
+
+    runner = _runner({"portal_list_x": 533, "portal_list_y": 208,
+                      "portal_list_w": 343, "portal_list_h": 88})
+    regions = []
+
+    def fake_wait_any(hwnd, names, **kwargs):
+        regions.append(kwargs.get("region"))
+        return {"score": 0.96, "cx": 700, "cy": 250}, "summer_portal"
+
+    monkeypatch.setattr(portal_module.vision, "wait_for_image_any", fake_wait_any)
+
+    match, name = runner._find_portal_card(1, threading.Event(), ("summer_portal",))
+    assert match is not None
+    assert regions == [(533, 208, 343, 88)], "found on the first pass, no widening"
+    assert not any("outside the searched list area" in line for line in runner.logged)

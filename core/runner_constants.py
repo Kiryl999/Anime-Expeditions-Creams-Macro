@@ -936,6 +936,16 @@ DEFAULT_COORDS = {
     # at the field itself instead. Left empty rather than guessed: nothing
     # in the repo can measure where the box really is on a given setup.
     "portal_search_x": None, "portal_search_y": None,
+    # Portal picker's card list. All four unset = Auto: use the built-in
+    # PORTAL_SEARCHES["portals"] box. That box was measured on one layout and
+    # does not survive a picker that sits elsewhere -- confirmed live on a
+    # setup ~189px to the right, where every card fell outside it. The search
+    # widens to the whole window when the box comes up empty, so Auto still
+    # WORKS there; it just pays the full PORTAL_CARD_TIMEOUT on the wasted
+    # first pass every single time a portal is picked. Setting the box makes
+    # that pass hit instead.
+    "portal_list_x": None, "portal_list_y": None,
+    "portal_list_w": None, "portal_list_h": None,
     "screen_middle_x": SCREEN_MIDDLE_CLICK[0], "screen_middle_y": SCREEN_MIDDLE_CLICK[1],
     "unit_info_reset_x": UNIT_INFO_RESET_CLICK[0], "unit_info_reset_y": UNIT_INFO_RESET_CLICK[1],
     "daily_challenge_tab_x": 250, "daily_challenge_tab_y": 315,
