@@ -2,21 +2,15 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
-## [Unreleased]
+## [0.21.6] - 2026-09-09
 
 ### Fixed
 - **The "Click anywhere to close" panel is actually dismissed**: the cursor moved to the panel and nothing happened -- the click neither took window focus first (as every other click path in the runner does) nor approached with the hover-in movement some Roblox buttons need before a click registers at all. It now does both, and then checks whether the panel really went away: if it is still up, the middle of the screen is clicked once instead, since the panel's text can sit in a strip that is not itself the input catcher. A failed dismissal used to be invisible -- the panel hides the Victory screen, so the run just polled a covered result until the 30-minute match timeout with nothing in the log to explain it.
-
-## [0.21.5] - 2026-09-09
+- **Portal cards are found even when the picker sits elsewhere**: the card search was boxed into `PORTAL_SEARCHES["portals"]`, a hardcoded region measured on one layout. A setup whose search field sits ~189px right of the shipped one puts the whole card list past that box's right edge, so every post-victory pick failed with "No portal card found" while the card was plainly on screen. The region is now a hint, not a boundary -- searched first (it still disambiguates when several portals are listed), then widened to the whole window, which is safe because the typed query has already filtered the list. The widening is logged so a mismatched region stays visible instead of silently costing runs.
+- **The card is waited for, not glanced at**: the search was a single one-shot look. The post-victory picker opens over the result screen and is still filtering for a moment, so a slow frame read as "not there". Both portal lead-ins now share one search with a timeout.
 
 ### New
 - **Portal Card List box** (Settings > Debug > Macro Coordinates): set the area the portal cards are searched in. **Pick** now takes two clicks for a box -- the top-left corner, then the opposite one -- and writes x, y, width and height. Auto keeps the built-in box, which still works everywhere thanks to the whole-window fallback, but pays that fallback's timeout on every single portal pick when the box does not fit; setting it once makes the first pass hit instead. The log line that reports the widening now names the box it searched and says how many seconds each pick is losing.
-
-## [0.21.4] - 2026-09-09
-
-### Fixed
-- **Portal cards are found even when the picker sits elsewhere**: the card search was boxed into `PORTAL_SEARCHES["portals"]`, a hardcoded region measured on one layout. A setup whose search field sits ~189px right of the shipped one puts the whole card list past that box's right edge, so every post-victory pick failed with "No portal card found" while the card was plainly on screen. The region is now a hint, not a boundary -- searched first (it still disambiguates when several portals are listed), then widened to the whole window, which is safe because the typed query has already filtered the list. The widening is logged so a mismatched region stays visible instead of silently costing runs.
-- **The card is waited for, not glanced at**: the search was a single one-shot look. The post-victory picker opens over the result screen and is still filtering for a moment, so a slow frame read as "not there". Both portal lead-ins now share one search with a timeout.
 
 ## [0.21.3] - 2026-09-09
 
