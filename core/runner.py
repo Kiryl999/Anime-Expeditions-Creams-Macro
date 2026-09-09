@@ -1762,13 +1762,25 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._exp_intercept_streak = 0
         self._exp_intercept_since = 0.0
         self._exp_clock_marked_at = 0.0
-        # Spirit City Act 3's boss/cutscene "Click anywhere to close" popup
-        # (see _click_close_popup_if_found) only ever shows up there.
-        watch_close_popup = (task.get("mode") == "raid" and task.get("map") == "Spirit City"
-                              and str(task.get("stage")) == "3")
+        watch_close_popup = self._wants_close_popup_watch(task)
         return self._wait_for_match_result(hwnd, stop_event, battle_blocks, first_repeat, task.get("macro"),
                                              task.get("mode"), watch_close_popup, webhook, task)
 
+
+    @staticmethod
+    def _wants_close_popup_watch(task: dict) -> bool:
+        """Whether this task can hit a full-screen "Click anywhere to close"
+        panel mid-battle, so the poll loop should watch for one.
+
+        Kept off everywhere else because it is one more image search per
+        poll tick; see CLOSE_POPUP_RAID_MAPS for the maps and why each is
+        on the list. Was hardcoded to Spirit City Act 3 on the assumption
+        that its boss intro was the only such panel -- Snowy Castle Act 3
+        disproved that with its Iron Wolf secret-unit reveal.
+        """
+        return (task.get("mode") == "raid"
+                and task.get("map") in CLOSE_POPUP_RAID_MAPS
+                and str(task.get("stage")) == CLOSE_POPUP_RAID_STAGE)
 
     @staticmethod
     def _infinite_wave_limit(task: dict):

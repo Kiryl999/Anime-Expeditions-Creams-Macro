@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **Snowy Castle Act 3 no longer stalls on the Iron Wolf reveal**: the secret unit's full-screen "Click anywhere to close" panel hides the Victory screen completely, and the macro only ever watched for that panel on Spirit City Act 3 -- so a run that drew Iron Wolf polled a covered result screen until the 30-minute match timeout. The watch now covers both raid Acts that can throw one (`CLOSE_POPUP_RAID_MAPS`), and stays off elsewhere since it costs an image search per poll. Unlike Spirit City's cutscene, Iron Wolf is a drop and can land at any moment in the round. If the shipped `click_anywhere_to_close` crops do not match it on your setup, add one of your own to that folder -- they include the background behind the text, which differs per screen.
+
 ## [0.21.0] - 2026-09-09
 
 ### New

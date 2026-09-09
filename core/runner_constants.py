@@ -306,6 +306,25 @@ ACT_ORDER = ["1", "2", "3"]
 ACT_CLICK_BASE = (250, 267)  # Act 1's click point
 ACT_ROW_HEIGHT = 129
 
+# Raid Acts that throw a FULL-SCREEN "Click anywhere to close" panel
+# mid-battle. It covers the Victory screen completely, so a run that does
+# not dismiss it sits there until MATCH_RESULT_TIMEOUT instead of ever
+# reading a result -- see runner._click_close_popup_if_found, and
+# _wants_close_popup_watch for the gate these feed.
+#
+# Two known sources, both on Act 3: Spirit City's boss/cutscene intro,
+# which opens at a fixed point in the fight, and Snowy Castle's "Iron
+# Wolf" secret-unit reveal, which is a DROP -- it can land at any moment
+# in the round, including while the result is already being waited for.
+#
+# Gated rather than always-on because it costs one extra image search on
+# every poll tick of every match. Add a map here when its Act 3 turns out
+# to do the same; the text crops shipped under
+# Assets/ui/click_anywhere_to_close/ include the surrounding background,
+# so a new screen usually also wants its own variant crop added there.
+CLOSE_POPUP_RAID_MAPS = ("Spirit City", "Snowy Castle")
+CLOSE_POPUP_RAID_STAGE = "3"
+
 # Event mode: reached straight from the lobby via its own nav_event button
 # (NOT through Play like Story/Raid/Expedition/Challenge), then the Summer
 # event's nav entry, then its gamemode card, then one of the event kind cards.
