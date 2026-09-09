@@ -588,24 +588,62 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                   f'{RETURN_TO_LOBBY_CLICK_RETRY_ATTEMPTS} clicks -- continuing anyway.')
         return True
 
-    def _click_close_popup_if_found(self, hwnd) -> None:
-        # Spirit City Act 3 (Raid) can throw up a "Click anywhere to close"
-        # popup (a boss/cutscene intro) mid-battle -- one-shot/best-effort
-        # like nav_disband, checked every poll tick while watching for the
-        # match result (see watch_close_popup in _wait_for_match_result).
-        # Its visual variants all live in Assets/ui/click_anywhere_to_close/
-        # and are tried automatically per search (see
-        # vision.template_variant_paths).
+    def _click_close_popup_if_found(self, hwnd) -> bool:
+        """Dismiss a full-screen "Click anywhere to close" panel if one is up.
+
+        Checked every poll tick while watching for the match result (see
+        watch_close_popup in _wait_for_match_result). Its visual variants all
+        live in Assets/ui/click_anywhere_to_close/ and are tried automatically
+        per search (see vision.template_variant_paths).
+
+        The click is deliberately not a bare click_match. Reported live on the
+        Iron Wolf reveal: the cursor moved to the panel and nothing happened.
+        Two things were missing that the rest of this codebase already does
+        for clicks the game has to actually receive --
+
+        * focus: activate_window first, as the other click paths do, or the
+          click can go to whatever is focused instead of Roblox;
+        * hover-in: shuffle_click approaches with real relative moves, which
+          is the documented remedy for a button whose click "visually lands"
+          but never registers (Mouse.shuffle_click, added for Expedition's
+          extract confirm and the lobby Event button).
+
+        And it now verifies. The panel hides the Victory screen entirely, so a
+        click that silently failed used to just repeat every tick until the
+        match timeout with nothing in the log to say so. If the panel is still
+        up after the click, the middle of the screen is tried once -- "click
+        anywhere" ought to mean the centre too, and the panel's text can sit
+        in a strip that is not itself the input catcher.
+
+        Returns whether a panel was seen at all.
+        """
         try:
             match = vision.find_image(hwnd, "click_anywhere_to_close")
         except vision.TemplateNotFound:
-            return
+            return False
         if match is None:
-            return
+            return False
         debug_path = self._debug_save(hwnd, "click_anywhere_to_close", match)
         suffix = f" Debug: {debug_path}" if debug_path else ""
         self._log(f"[Macro] Found \"Click anywhere to close\" (score {match['score']:.2f}) -- clicking it.{suffix}")
-        vision.click_match(self._mouse, hwnd, match)
+        if not wm.activate_window(hwnd):
+            self._log("[Macro] Couldn't confirm focus before dismissing the close panel -- "
+                      "the click may not register.")
+        vision.click_match(self._mouse, hwnd, match, shuffle=True)
+
+        time.sleep(CLOSE_POPUP_VERIFY_DELAY)
+        try:
+            still_there = vision.find_image(hwnd, "click_anywhere_to_close")
+        except vision.TemplateNotFound:
+            return True
+        if still_there is None:
+            return True
+
+        left, top, _, _ = wm.get_window_rect_screen(hwnd)
+        self._log("[Macro] The close panel is still up -- clicking the middle of the screen instead.")
+        self._mouse.shuffle_click(left + self._coords["screen_middle_x"],
+                                  top + self._coords["screen_middle_y"])
+        return True
 
     def _dismiss_reward_card_if_found(self, hwnd) -> bool:
         """A level-up "Select an upgrade!" reward-card modal can show up at

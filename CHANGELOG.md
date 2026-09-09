@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **The "Click anywhere to close" panel is actually dismissed**: the cursor moved to the panel and nothing happened -- the click neither took window focus first (as every other click path in the runner does) nor approached with the hover-in movement some Roblox buttons need before a click registers at all. It now does both, and then checks whether the panel really went away: if it is still up, the middle of the screen is clicked once instead, since the panel's text can sit in a strip that is not itself the input catcher. A failed dismissal used to be invisible -- the panel hides the Victory screen, so the run just polled a covered result until the 30-minute match timeout with nothing in the log to explain it.
+
 ## [0.21.5] - 2026-09-09
 
 ### New

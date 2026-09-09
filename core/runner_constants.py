@@ -324,6 +324,10 @@ ACT_ROW_HEIGHT = 129
 # so a new screen usually also wants its own variant crop added there.
 CLOSE_POPUP_RAID_MAPS = ("Spirit City", "Snowy Castle")
 CLOSE_POPUP_RAID_STAGE = "3"
+# How long to let the close-panel react before checking whether it actually
+# went away. Short on purpose: this runs inside the match poll loop, which
+# already waits MATCH_RESULT_POLL_INTERVAL between ticks.
+CLOSE_POPUP_VERIFY_DELAY = 0.45
 
 # Event mode: reached straight from the lobby via its own nav_event button
 # (NOT through Play like Story/Raid/Expedition/Challenge), then the Summer

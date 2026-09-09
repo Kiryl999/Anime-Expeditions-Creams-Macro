@@ -72,3 +72,80 @@ def test_listed_maps_are_real_raid_maps():
 
 def test_the_watched_stage_is_a_real_act():
     assert rc.CLOSE_POPUP_RAID_STAGE in rc.ACT_ORDER
+
+
+# ---------------------------------------------------------------------------
+# Actually dismissing the panel
+# ---------------------------------------------------------------------------
+
+def _popup_runner(monkeypatch, frames):
+    """A runner whose close-panel search returns `frames` in order.
+
+    Each entry is a match dict or None -- so a test can say "up, then gone"
+    or "up, still up".
+    """
+    import core.runner as runner_module
+    from core.runner_constants import DEFAULT_COORDS
+
+    runner = object.__new__(MacroRunner)
+    runner.events = []
+    runner.logged = []
+    runner._coords = dict(DEFAULT_COORDS)
+    runner._log = lambda message: runner.logged.append(message)
+    runner._debug_save = lambda *a, **k: None
+    mouse = type("Mouse", (), {})()
+    mouse.click = lambda x, y, **k: runner.events.append(("click", x, y))
+    mouse.shuffle_click = lambda x, y, **k: runner.events.append(("shuffle", x, y))
+    runner._mouse = mouse
+
+    seen = iter(frames)
+    monkeypatch.setattr(runner_module.vision, "find_image",
+                        lambda hwnd, name, **k: next(seen, None))
+    monkeypatch.setattr(runner_module.wm, "activate_window",
+                        lambda hwnd: runner.events.append(("focus",)) or True)
+    monkeypatch.setattr(runner_module.wm, "get_window_rect_screen",
+                        lambda hwnd: (0, 0, 1152, 756))
+    monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
+    return runner
+
+
+def test_nothing_happens_when_no_panel_is_up(monkeypatch):
+    runner = _popup_runner(monkeypatch, [None])
+
+    assert runner._click_close_popup_if_found(1) is False
+    assert runner.events == []
+
+
+def test_the_panel_click_takes_focus_and_hovers_in(monkeypatch):
+    """Reported live: the cursor moved to the panel and nothing happened. A
+    bare click_match neither focused the window nor approached with the real
+    relative moves some Roblox buttons need before a click registers."""
+    match = {"score": 0.98, "cx": 576, "cy": 700}
+    runner = _popup_runner(monkeypatch, [match, None])
+
+    assert runner._click_close_popup_if_found(1) is True
+    kinds = [e[0] for e in runner.events]
+    assert kinds[0] == "focus", "focus before the click, like every other click path"
+    assert "shuffle" in kinds, "hover-in, not a bare jump-and-click"
+    assert "click" not in kinds
+
+
+def test_a_panel_that_survives_the_click_gets_the_screen_middle(monkeypatch):
+    """The panel hides Victory, so a click that silently failed used to repeat
+    every tick until the match timed out."""
+    match = {"score": 0.98, "cx": 576, "cy": 700}
+    runner = _popup_runner(monkeypatch, [match, match])
+
+    assert runner._click_close_popup_if_found(1) is True
+    points = [(e[1], e[2]) for e in runner.events if e[0] == "shuffle"]
+    assert points[-1] == (runner._coords["screen_middle_x"], runner._coords["screen_middle_y"])
+    assert any("still up" in line for line in runner.logged)
+
+
+def test_a_panel_that_closes_is_not_clicked_twice(monkeypatch):
+    match = {"score": 0.98, "cx": 576, "cy": 700}
+    runner = _popup_runner(monkeypatch, [match, None])
+
+    runner._click_close_popup_if_found(1)
+    assert len([e for e in runner.events if e[0] == "shuffle"]) == 1
+    assert not any("still up" in line for line in runner.logged)
