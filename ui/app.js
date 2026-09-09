@@ -2154,7 +2154,14 @@ const TASK_DATA = {
   },
   raid: {
     label: 'Raid',
-    maps: ['Spirit City'],
+    // Every raid story shares ONE carousel and one 3-Act stage screen (see
+    // ACT_ORDER/ACT_CLICK_BASE/ACT_ROW_HEIGHT in core/runner_constants.py --
+    // the Acts are clicked by computed row position, not by image), so a new
+    // raid is just another entry here plus its name-label crop under
+    // Assets/maps/<exact name>/. Nothing in the runner is per-raid. If a
+    // future raid ever ships with a different Act count, this list can no
+    // longer be shared -- `stages` would have to become per-map first.
+    maps: ['Spirit City', 'Snowy Castle'],
     stages: ['1', '2', '3'],
     fixedDifficulty: 'Hard',
   },

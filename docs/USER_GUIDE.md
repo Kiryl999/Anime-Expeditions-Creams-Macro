@@ -193,6 +193,26 @@ Open **Task**, add tasks in the order they should run, and configure each one:
 4. Assign the saved Macro Manager operation to the task.
 5. Save the queue or export it if you want a backup/shareable setup.
 
+### Raid maps
+
+Both raid stories -- **Spirit City** and **Snowy Castle** -- sit in the same
+Play -> Raid carousel, have the same 3 Acts, and are locked to Hard in-game,
+so they are picked exactly like each other from the Map dropdown.
+
+Snowy Castle is new enough that no reference image ships for it. Capture its
+name label once via **Settings > General > Image Manager > Map Names** (the
+folder name has to be exactly `Snowy Castle`); crop only the bold white map
+name under the card art, not the thumbnail and not the whole card. Until that
+crop exists the map search fails immediately without even scrolling the
+carousel -- there is no image to match -- and the task stops after 3 retries
+from the lobby with a "no reference image" message in the log naming the
+missing folder.
+
+If the crop exists but the card still isn't found, that looks different: the
+macro scrolls through the whole carousel three times first and then says the
+label never matched. Add a second crop to the same folder in that case rather
+than replacing the first -- every .png in the folder is tried.
+
 For challenges, open **Challenge** separately. Enable Daily and/or the desired
 Regular Challenge slots, select Solo or Matchmaking, and assign an operation
 for each map that may appear. Challenge automation runs before the normal task

@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [Unreleased]
+
+### New
+- **Raid: Snowy Castle**: the second raid story is now selectable as a Raid map, alongside Spirit City. It shares the carousel, the 3 Acts and the Hard-locked difficulty with the first one, so the only thing it needs is its own name-label crop under `Assets/maps/Snowy Castle/` (Settings > General > Image Manager > Map Names).
+
 ## [0.19.1] - 2026-08-13
 
 ### Improved
