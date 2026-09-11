@@ -2,6 +2,15 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.9] - 2026-09-11
+
+### Fixed
+- **A closed result screen no longer stalls a run for 30 minutes**: on a portal round the result panel could end up shut before Victory was read, leaving only a "Game Results" button at the bottom. The run then waited out the whole match timeout over a finished match -- long enough for the game to park you in the AFK Chamber. That button is now clicked to bring the result back. The crop is included.
+- **The AFK Chamber and a leftover portal picker no longer get Roblox restarted**: when Play could not be found, the run treated it as a silent disconnect straight away and restarted Roblox. Both screens hide Play without being a disconnect. The lobby check now leaves the AFK Chamber or closes the portal picker first and looks again; a restart only happens if that does not help. The portal picker's close-button crop is included.
+- **A restart that never brought Roblox back no longer leaves the run on the Launch Roblox screen**: if the relaunch did not produce a window, that launch stayed "pending" forever and blocked every later restart, including the automatic reopen. It is now given up on after 5 minutes and launched again.
+- **Restarts are more reliable**: Roblox was relaunched one second after the old client was killed, whether or not it had actually exited, and some of those relaunches never produced a window. The old client is now waited on until it is really gone.
+- **After an automatic reopen the run follows the new window**: it could keep acting on the closed one -- every search missed and every screenshot came back empty -- until a lobby check eventually failed and forced another restart.
+
 ## [0.21.8] - 2026-09-09
 
 ### New
