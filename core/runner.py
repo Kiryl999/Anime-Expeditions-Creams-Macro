@@ -266,6 +266,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # waiting on Roblox's single-instance handoff.
         self._rejoin_lock = threading.Lock()
         self._rejoin_pending = False
+        # When the pending handoff was armed -- see _rejoin_handoff_active.
+        self._rejoin_pending_at = 0.0
         self._left_stage_this_run = False
         # Placed-unit screen positions from THIS match's Pre Start (see
         # _run_place_unit_block), keyed by the unit's #ordinal among place_unit
@@ -312,6 +314,22 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    def _rejoin_handoff_active(self) -> bool:
+        """Whether the pending deep-link handoff is still worth waiting on.
+
+        Deliberately time-boxed (REJOIN_PENDING_TTL) rather than a plain
+        read of the flag: the flag is only ever cleared when a rejoin
+        actually REACHES the lobby, so a handoff that could never succeed
+        used to stay "pending" for the rest of the session and permanently
+        suppress both this runner's rejoins and main.py's dock watchdog
+        auto-reopen (which gates on is_rejoin_pending). Expiring it means the
+        worst case is a delayed retry instead of a run wedged forever on a
+        Roblox that never came back.
+        """
+        if not self._rejoin_pending:
+            return False
+        return (time.time() - self._rejoin_pending_at) < REJOIN_PENDING_TTL
+
     def is_rejoin_pending(self) -> bool:
         """Whether this runner already handed a deep link to Roblox/Bloxstrap.
 
@@ -319,7 +337,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         link while this runner is still waiting on the first handoff, even if
         Roblox temporarily has no discoverable window.
         """
-        return self._rejoin_pending or self._rejoin_lock.locked()
+        return self._rejoin_handoff_active() or self._rejoin_lock.locked()
 
     def claim_rejoin_launch(self) -> bool:
         """Reserve the single rejoin handoff for the dock watchdog.
@@ -332,9 +350,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         if not self._rejoin_lock.acquire(blocking=False):
             return False
         try:
-            if self._rejoin_pending:
+            if self._rejoin_handoff_active():
                 return False
             self._rejoin_pending = True
+            self._rejoin_pending_at = time.time()
             return True
         finally:
             self._rejoin_lock.release()
@@ -343,6 +362,29 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         """Release a watchdog claim when its deep-link launch fails."""
         with self._rejoin_lock:
             self._rejoin_pending = False
+            self._rejoin_pending_at = 0.0
+
+    def _live_hwnd(self, hwnd):
+        """The Roblox window the run should act on right now.
+
+        self._current_hwnd only moves when the runner's OWN rejoin reaches
+        the lobby. When main.py's dock watchdog reopens a closed Roblox
+        instead, the new window was never picked up: the run kept acting on
+        the dead handle, every search missed and every screenshot came back
+        empty -- 17 minutes of that before a lobby check finally failed and
+        forced a rejoin. The watchdog publishes whatever it docked through
+        _hwnd_getter, so fall back to that when the tracked window is gone.
+        """
+        if self._current_hwnd and wm.is_window(self._current_hwnd):
+            return self._current_hwnd
+        try:
+            docked = self._hwnd_getter() if self._hwnd_getter else None
+        except Exception:
+            docked = None
+        if docked and wm.is_window(docked):
+            self._current_hwnd = docked
+            return docked
+        return hwnd
 
     def is_paused(self) -> bool:
         return self._pause_event.is_set()
@@ -1114,8 +1156,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 # A disconnect/rejoin during a previous task (see
                 # _attempt_rejoin) may have re-docked Roblox under a new
                 # hwnd -- pick that up before starting the next task.
-                if self._current_hwnd and wm.is_window(self._current_hwnd):
-                    hwnd = self._current_hwnd
+                hwnd = self._live_hwnd(hwnd)
 
                 # A mid-task failure (a stuck battle, a missed click, ...)
                 # doesn't kill the whole overnight run -- _run_task recovers to
@@ -1153,8 +1194,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                         "Challenge", hwnd, stop_event,
                         lambda: self._run_challenges(
                             hwnd, stop_event, coords, default_walk_paths, webhook))
-                if self._current_hwnd and wm.is_window(self._current_hwnd):
-                    hwnd = self._current_hwnd
+                hwnd = self._live_hwnd(hwnd)
                 if self._checkpoint(stop_event):
                     return
 
@@ -1168,22 +1208,19 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 self._run_guarded_phase(
                     "Auto Crafting", hwnd, stop_event,
                     lambda: self._run_crafting_if_due(hwnd, stop_event))
-                if self._current_hwnd and wm.is_window(self._current_hwnd):
-                    hwnd = self._current_hwnd
+                hwnd = self._live_hwnd(hwnd)
                 if self._checkpoint(stop_event):
                     return
                 self._run_guarded_phase(
                     "Auto Fuel", hwnd, stop_event,
                     lambda: self._run_fuel_refill_if_due(hwnd, stop_event))
-                if self._current_hwnd and wm.is_window(self._current_hwnd):
-                    hwnd = self._current_hwnd
+                hwnd = self._live_hwnd(hwnd)
                 if self._checkpoint(stop_event):
                     return
                 self._run_guarded_phase(
                     "Auto Shop", hwnd, stop_event,
                     lambda: self._run_auto_shop_if_due(hwnd, stop_event))
-                if self._current_hwnd and wm.is_window(self._current_hwnd):
-                    hwnd = self._current_hwnd
+                hwnd = self._live_hwnd(hwnd)
                 if self._checkpoint(stop_event):
                     return
 
@@ -1248,8 +1285,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # self._current_hwnd is what tracks that, so every retry picks
             # up wherever the game actually ended up rather than continuing
             # to act on a hwnd that might already be dead.
-            if self._current_hwnd and wm.is_window(self._current_hwnd):
-                hwnd = self._current_hwnd
+            hwnd = self._live_hwnd(hwnd)
             if recovery_attempt > 1:
                 self._log(f'[Macro] Retrying task {task_index}/{task_count} from the lobby '
                            f'(attempt {recovery_attempt}/{TASK_RECOVERY_ATTEMPTS})...')
@@ -1413,8 +1449,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                             return False
                         task_failed = True
                         break
-                    if self._current_hwnd and wm.is_window(self._current_hwnd):
-                        hwnd = self._current_hwnd
+                    hwnd = self._live_hwnd(hwnd)
                     if not is_last_repeat:
                         # Leave Stage above already left the stage entirely
                         # (repeat=False), and the restart just left the
@@ -1488,8 +1523,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                     self._run_fuel_refill(hwnd, stop_event)
                     if self._checkpoint(stop_event):
                         return False
-                    if self._current_hwnd and wm.is_window(self._current_hwnd):
-                        hwnd = self._current_hwnd
+                    hwnd = self._live_hwnd(hwnd)
                     self._log(f'[Macro] Auto Fuel pass finished. Resuming "{map_name}".')
                     # Auto Fuel temporarily owns the Dashboard status context.
                     # Restore the same task and the upcoming repeat before
@@ -1523,8 +1557,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                     self._run_auto_shop(hwnd, stop_event)
                     if self._checkpoint(stop_event):
                         return False
-                    if self._current_hwnd and wm.is_window(self._current_hwnd):
-                        hwnd = self._current_hwnd
+                    hwnd = self._live_hwnd(hwnd)
                     self._log(
                         f'[Macro] Auto Shop pass finished. Resuming "{map_name}".'
                     )
@@ -1559,8 +1592,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                         task_failed = True
                         break
                     self._complete_memory_refresh()
-                    if self._current_hwnd and wm.is_window(self._current_hwnd):
-                        hwnd = self._current_hwnd
+                    hwnd = self._live_hwnd(hwnd)
                     if not is_last_repeat:
                         if not self._run_task_setup(
                                 hwnd, stop_event, task, mode, map_name, coords,
@@ -2166,6 +2198,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             deadline = time.time() + MATCH_RESULT_TIMEOUT
         lobby_sightings = 0   # consecutive polls that found the lobby's Play button
         afk_clicked_at = 0.0  # last time the AFK Chamber exit was clicked
+        results_reopened_at = 0.0  # last time "Game Results" was clicked
         # {"handled_at", "seen_at"} -- the settle is deferred, not slept, so the
         # poll loop keeps picking upgrade cards and clicking Continues meanwhile.
         encounter_state = {"handled_at": 0.0, "seen_at": 0.0}
@@ -2257,6 +2290,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             afk_clicked_at = self._dismiss_afk_chamber(hwnd, afk_clicked_at)
 
             clicked_something = False
+            results_reopened_at = self._reopen_game_results(hwnd, results_reopened_at)
+            if time.time() - results_reopened_at < GAME_RESULTS_CLICK_COOLDOWN:
+                # Hold the other clicks (a fishing cast in particular) off
+                # while the panel animates back in, so nothing lands on it
+                # and shuts it again before Victory/Defeat is read.
+                clicked_something = True
             if watch_close_popup:
                 clicked_something = self._click_close_popup_if_found(hwnd) or clicked_something
 
@@ -3364,7 +3403,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         instead of continuing to poll a dead window handle. Updates
         self._current_hwnd on success. Returns whether the lobby was
         actually reached again."""
-        if self._rejoin_pending:
+        if self._rejoin_handoff_active():
             # The previous call already handed the link to Roblox/Bloxstrap.
             # Its launcher can remain alive after our timeout, so keep polling
             # the same handoff instead of opening a second link/instance.
@@ -3372,6 +3411,16 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             self._log("[Macro] A Roblox rejoin is already pending -- waiting on the existing launch "
                       "instead of opening another instance.")
         else:
+            if self._rejoin_pending:
+                # Pending, but past REJOIN_PENDING_TTL: the launcher is never
+                # going to deliver a lobby (it died, or the link fired while
+                # the connection was down). Drop the claim so the launch below
+                # actually runs -- holding it was what left an unattended run
+                # looping on a Roblox that had closed and never came back.
+                self._log(f"[Macro] The pending Roblox rejoin never reached the lobby within "
+                          f"{REJOIN_PENDING_TTL:.0f}s -- treating it as dead and launching a fresh one.")
+                self._rejoin_pending = False
+                self._rejoin_pending_at = 0.0
             # A deep-link launch invokes Roblox's OWN single-instance handling,
             # which force-closes every OTHER open Roblox window down to just
             # the newly launched one -- fine (even desired) on a single-
@@ -3430,6 +3479,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 self._log(f"[Macro] Couldn't launch the rejoin link: {exc}")
                 return False
             self._rejoin_pending = True
+            self._rejoin_pending_at = time.time()
             self._log("[Macro] Rejoin link launched -- waiting for the game to load back in...")
 
         deadline = time.time() + REJOIN_TIMEOUT
@@ -3450,12 +3500,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 self._log("[Macro] Rejoined -- back on the lobby.")
                 self._current_hwnd = current_hwnd
                 self._rejoin_pending = False
+                self._rejoin_pending_at = 0.0
                 return True
         screenshot_path = self._save_debug_screenshot_unconditional(last_hwnd, "rejoin_timeout")
         suffix = f" Debug: {screenshot_path}" if screenshot_path else ""
         self._set_status(action="Rejoin pending -- still waiting for the lobby...")
         self._log(f"[Macro] Rejoin didn't reach the lobby within {REJOIN_TIMEOUT:.0f}s -- keeping the "
-                  f"existing launch pending; no second deep link will be opened.{suffix}")
+                  f"existing launch pending; no second deep link will be opened for up to "
+                  f"{REJOIN_PENDING_TTL:.0f}s from the launch, after which it's retried.{suffix}")
         return False
 
     def _click_start_and_wait_teleport(self, hwnd, stop_event: threading.Event, webhook: dict = None,
@@ -4135,10 +4187,21 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             match, _ = vision.wait_for_image_any(
                 hwnd, NAV_PLAY_IMAGE_NAMES,
                 timeout=LOBBY_CHECK_TIMEOUT, stop_event=stop_event)
+            if match is None and not stop_event.is_set() and self._clear_lobby_blocker(hwnd):
+                match, _ = vision.wait_for_image_any(
+                    hwnd, NAV_PLAY_IMAGE_NAMES,
+                    timeout=LOBBY_BLOCKER_CLEAR_TIMEOUT, stop_event=stop_event)
         except vision.TemplateNotFound as exc:
             self._log(f"[Macro] Can't check the lobby: {exc}")
             return False
         if match is not None:
+            # A lobby on screen means any deep link still marked pending has
+            # landed -- the dock watchdog's reopen in particular, which no
+            # runner rejoin ever polls to completion. Left set, the next REAL
+            # disconnect would sit out REJOIN_PENDING_TTL instead of
+            # relaunching.
+            self._rejoin_pending = False
+            self._rejoin_pending_at = 0.0
             return True
         if stop_event.is_set():
             return False
@@ -4593,6 +4656,63 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._log(f'[Macro] In the AFK Chamber (score {match["score"]:.2f}) -- clicking out of it.')
         self._set_status(action="Leaving the AFK Chamber...")
         self._mouse.click(left + AFK_CHAMBER_EXIT_CLICK[0], top + AFK_CHAMBER_EXIT_CLICK[1])
+        return time.time()
+
+    def _clear_lobby_blocker(self, hwnd) -> bool:
+        """Get a known non-lobby screen out of the way before a failed lobby
+        check is written off as a disconnect.
+
+        A missing Play button went straight to _attempt_rejoin, which kills
+        the client -- and two screens that are nothing like a disconnect hide
+        Play just as well: the AFK Chamber, which the match-result poll was
+        the only thing ever checking for, and a portal picker left open when
+        its Select click did not take (seen live as a teleport timeout, then
+        a killed client whose relaunch never came back). Both have a way out
+        that keeps the session, so that is tried first; the rejoin stays the
+        fallback when nothing here matches.
+
+        Returns whether something was clicked, i.e. whether a second look for
+        Play is worth it.
+        """
+        if self._dismiss_afk_chamber(hwnd, 0.0):
+            return True
+        try:
+            match = vision.find_image(hwnd, PORTAL_PICKER_CLOSE_IMAGE)
+        except vision.TemplateNotFound:
+            return False
+        if match is None:
+            return False
+        self._log(f'[Macro] A portal picker is covering the lobby (score {match["score"]:.2f}) -- closing it.')
+        self._set_status(action="Closing the portal picker...")
+        vision.click_match(self._mouse, hwnd, match)
+        return True
+
+    def _reopen_game_results(self, hwnd, last_clicked_at: float) -> float:
+        """Reopen a finished match's result panel when it was shut before
+        Victory/Defeat could be read.
+
+        Seen live on a portal round: the middle portal was taken, Victory
+        never matched, and the run polled a finished match (wave 15/15, no
+        enemies) for the whole MATCH_RESULT_TIMEOUT -- the panel was gone,
+        only its "Game Results" button was left at the bottom. The button
+        only exists once a match is over, so this cannot interrupt a live
+        round.
+
+        Same rate limit and return shape as _dismiss_afk_chamber. Optional:
+        no game_results crop means the check does nothing.
+        """
+        if time.time() - last_clicked_at < GAME_RESULTS_CLICK_COOLDOWN:
+            return last_clicked_at
+        try:
+            match = vision.find_image(hwnd, GAME_RESULTS_IMAGE, region=GAME_RESULTS_REGION)
+        except vision.TemplateNotFound:
+            return last_clicked_at
+        if match is None:
+            return last_clicked_at
+        self._log(f'[Macro] The result screen was closed ("Game Results" is showing, score '
+                  f'{match["score"]:.2f}) -- reopening it.')
+        self._set_status(action="Reopening the result screen...")
+        vision.click_match(self._mouse, hwnd, match)
         return time.time()
 
     def _find_gamemode_card(self, hwnd, stop_event: threading.Event, names, label: str):

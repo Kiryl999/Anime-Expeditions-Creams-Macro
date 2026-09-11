@@ -403,6 +403,178 @@ def test_watchdog_rejoin_claim_is_single_use():
     assert runner.claim_rejoin_launch() is True
     runner.cancel_rejoin_launch()
 
+
+def test_stale_rejoin_claim_expires_so_the_watchdog_can_relaunch(monkeypatch):
+    """A handoff that never delivered must not gate reopens forever.
+
+    ``_rejoin_pending`` was only ever cleared on a rejoin that REACHED the
+    lobby, so a link that could never succeed (fired while the connection
+    was down, launcher died) left is_rejoin_pending() true for the rest of
+    the session -- and main.py's dock watchdog gates its auto-reopen on
+    exactly that, so an unattended run sat on a closed Roblox forever.
+    """
+    runner = MacroRunner(Mock(), Mock(), Mock())
+    now = [1000.0]
+    monkeypatch.setattr(runner_module.time, "time", lambda: now[0])
+
+    assert runner.claim_rejoin_launch() is True
+    now[0] += runner_module.REJOIN_PENDING_TTL - 1
+    assert runner.is_rejoin_pending(), "a still-fresh handoff is waited on, not raced"
+    assert runner.claim_rejoin_launch() is False
+
+    now[0] += 2  # now past the TTL
+    assert not runner.is_rejoin_pending()
+    assert runner.claim_rejoin_launch() is True, "the watchdog gets to try again"
+
+
+def test_rejoin_relaunches_after_the_pending_handoff_goes_stale(monkeypatch):
+    """The runner's own rejoin path heals the same way: past the TTL it
+    closes the wedged client and opens a FRESH link instead of polling a
+    launcher that is never going to produce a lobby."""
+    runner = MacroRunner(Mock(), Mock(), Mock())
+    stop_event = threading.Event()
+    now = [1000.0]
+    monkeypatch.setattr(runner_module, "REJOIN_TIMEOUT", 0.0)  # don't poll, just decide
+    monkeypatch.setattr(runner_module.time, "time", lambda: now[0])
+    monkeypatch.setattr(runner_module.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(runner_module.wm, "list_roblox_windows", lambda: [])
+    monkeypatch.setattr(runner_module.wm, "is_window", lambda _hwnd: True)
+    monkeypatch.setattr(runner_module.vision, "find_image_any", lambda *_a, **_k: (None, None))
+    launches = []
+    monkeypatch.setattr(runner_module.wm, "close_roblox_process", lambda hwnd: launches.append(("close", hwnd)))
+    monkeypatch.setattr(runner_module.os, "startfile",
+                        lambda url: launches.append(("launch", url)), raising=False)
+    runner._hwnd_getter = lambda: 123
+    runner._save_debug_screenshot_unconditional = Mock(return_value=None)
+
+    assert runner._attempt_rejoin(123, stop_event) is False
+    assert launches == [("close", 123), ("launch", runner_module.REJOIN_DEEPLINK)]
+
+    # Still within the TTL: keep waiting on the existing launcher.
+    now[0] += runner_module.REJOIN_PENDING_TTL - 1
+    assert runner._attempt_rejoin(123, stop_event) is False
+    assert len(launches) == 2, "no competing launch while the handoff is fresh"
+
+    # Past it: the handoff is dead, so a fresh client is launched.
+    now[0] += 2
+    assert runner._attempt_rejoin(123, stop_event) is False
+    assert launches == [("close", 123), ("launch", runner_module.REJOIN_DEEPLINK),
+                        ("close", 123), ("launch", runner_module.REJOIN_DEEPLINK)]
+    assert any("treating it as dead" in logged.args[0]
+               for logged in runner._log.call_args_list)
+
+
+def _lobby_check_runner(monkeypatch, blockers, play_after_clear=True):
+    """A real _ensure_lobby with Play missing on the first look.
+
+    ``blockers`` maps an image name to what find_image returns for it, so a
+    test can put the AFK Chamber or a portal picker on screen.
+    """
+    runner = MacroRunner(mouse=Mock(), keyboard=Mock(), log=Mock())
+    runner._attempt_rejoin = Mock(return_value=False)
+    waits = []
+    clicked = []
+
+    def wait_for_play(_hwnd, _names, timeout=None, stop_event=None, **_kwargs):
+        waits.append(timeout)
+        if len(waits) > 1 and play_after_clear:
+            return ({"score": 1.0}, "nav_play")
+        return (None, None)
+
+    monkeypatch.setattr(runner_module.vision, "wait_for_image_any", wait_for_play)
+    monkeypatch.setattr(runner_module.vision, "find_image",
+                        lambda _hwnd, name, region=None, **_kwargs: blockers.get(name))
+    monkeypatch.setattr(runner_module.vision, "click_match",
+                        lambda _mouse, _hwnd, match: clicked.append(match))
+    monkeypatch.setattr(runner_module.wm, "get_window_rect_screen", lambda _hwnd: (10, 20, 1152, 756))
+    return runner, waits, clicked
+
+
+def test_lobby_check_leaves_the_afk_chamber_instead_of_killing_roblox(monkeypatch):
+    """The AFK Chamber hides Play exactly like a disconnect does, but it has
+    an exit -- taking it keeps the session, a rejoin throws it away."""
+    runner, waits, _ = _lobby_check_runner(
+        monkeypatch, {"afk_chamber": {"cx": 576, "cy": 44, "score": 0.99}})
+
+    assert runner._ensure_lobby(123, threading.Event()) is True
+    exit_x, exit_y = runner_module.AFK_CHAMBER_EXIT_CLICK
+    runner._mouse.click.assert_called_once_with(10 + exit_x, 20 + exit_y)
+    assert waits == [runner_module.LOBBY_CHECK_TIMEOUT, runner_module.LOBBY_BLOCKER_CLEAR_TIMEOUT]
+    runner._attempt_rejoin.assert_not_called()
+
+
+def test_lobby_check_closes_a_leftover_portal_picker_instead_of_killing_roblox(monkeypatch):
+    picker_x = {"cx": 906, "cy": 180, "score": 0.97}
+    runner, _, clicked = _lobby_check_runner(monkeypatch, {"portal_picker_close": picker_x})
+
+    assert runner._ensure_lobby(123, threading.Event()) is True
+    assert clicked == [picker_x]
+    runner._attempt_rejoin.assert_not_called()
+
+
+def test_lobby_check_still_rejoins_when_nothing_is_in_the_way(monkeypatch):
+    runner, waits, clicked = _lobby_check_runner(monkeypatch, {})
+
+    runner._ensure_lobby(123, threading.Event())
+    assert waits == [runner_module.LOBBY_CHECK_TIMEOUT], "no second look without a cleared blocker"
+    assert clicked == []
+    runner._attempt_rejoin.assert_called_once()
+
+
+def test_lobby_check_rejoins_when_clearing_the_blocker_did_not_help(monkeypatch):
+    runner, waits, _ = _lobby_check_runner(
+        monkeypatch, {"portal_picker_close": {"cx": 906, "cy": 180, "score": 0.97}},
+        play_after_clear=False)
+
+    runner._ensure_lobby(123, threading.Event())
+    assert len(waits) == 2
+    runner._attempt_rejoin.assert_called_once()
+
+
+def test_seeing_the_lobby_settles_a_pending_rejoin(monkeypatch):
+    """The dock watchdog's reopen is never polled to completion by a runner
+    rejoin, so without this the claim stayed up until REJOIN_PENDING_TTL and
+    a real disconnect in that window could not relaunch."""
+    runner = MacroRunner(mouse=Mock(), keyboard=Mock(), log=Mock())
+    monkeypatch.setattr(runner_module.vision, "wait_for_image_any",
+                        lambda *_a, **_k: ({"score": 1.0}, "nav_play"))
+    assert runner.claim_rejoin_launch() is True
+
+    assert runner._ensure_lobby(123, threading.Event()) is True
+    assert not runner.is_rejoin_pending()
+
+
+def test_live_hwnd_adopts_the_window_the_watchdog_redocked(monkeypatch):
+    """A watchdog reopen docks Roblox under a new hwnd without the runner's
+    own rejoin ever running -- the run has to follow it there instead of
+    acting on the dead handle."""
+    runner = MacroRunner(mouse=Mock(), keyboard=Mock(), log=Mock())
+    alive = {222}
+    monkeypatch.setattr(runner_module.wm, "is_window", lambda hwnd: hwnd in alive)
+    runner._current_hwnd = 111  # the closed client
+    runner._hwnd_getter = lambda: 222
+
+    assert runner._live_hwnd(111) == 222
+    assert runner._current_hwnd == 222
+
+
+def test_live_hwnd_keeps_a_tracked_window_that_is_still_alive(monkeypatch):
+    runner = MacroRunner(mouse=Mock(), keyboard=Mock(), log=Mock())
+    monkeypatch.setattr(runner_module.wm, "is_window", lambda _hwnd: True)
+    runner._current_hwnd = 111
+    runner._hwnd_getter = lambda: 222
+
+    assert runner._live_hwnd(999) == 111
+
+
+def test_live_hwnd_falls_back_to_the_callers_hwnd_when_nothing_is_docked(monkeypatch):
+    runner = MacroRunner(mouse=Mock(), keyboard=Mock(), log=Mock())
+    monkeypatch.setattr(runner_module.wm, "is_window", lambda _hwnd: False)
+    runner._current_hwnd = 111
+    runner._hwnd_getter = lambda: None
+
+    assert runner._live_hwnd(999) == 999
+
 def test_open_deep_link_reports_rejected_link(monkeypatch):
     monkeypatch.delattr(runner_module.os, "startfile", raising=False)
     monkeypatch.setattr(runner_module.webbrowser, "open", lambda _url: False)

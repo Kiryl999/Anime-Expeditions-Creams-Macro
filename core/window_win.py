@@ -45,8 +45,13 @@ advapi32.GetTokenInformation.argtypes = [
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 PROCESS_TERMINATE = 0x0001
+SYNCHRONIZE = 0x00100000  # lets close_roblox_process wait on the handle
 kernel32.TerminateProcess.restype = wintypes.BOOL
 kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+kernel32.WaitForSingleObject.restype = wintypes.DWORD
+kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+# How long close_roblox_process waits for a killed client to actually be gone.
+ROBLOX_EXIT_WAIT_MS = 5000
 kernel32.CloseHandle.restype = wintypes.BOOL
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 ROBLOX_PROCESS_NAME = "robloxplayerbeta.exe"
@@ -433,15 +438,24 @@ def close_roblox_process(hwnd: int) -> None:
     TerminateProcess, deliberately -- WM_CLOSE is ignored by a stuck
     client, and the whole point is that it MUST die. Roblox's launcher is
     left alone: it's the process that answers the roblox:// deep link, so
-    it should stay to spawn the fresh client."""
+    it should stay to spawn the fresh client.
+
+    Returns once the client has exited, or after ROBLOX_EXIT_WAIT_MS."""
     pid = get_window_pid(hwnd)
     if not pid:
         return
-    h_process = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+    h_process = kernel32.OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, False, pid)
     if not h_process:
         return
     try:
-        kernel32.TerminateProcess(h_process, 1)
+        if kernel32.TerminateProcess(h_process, 1):
+            # TerminateProcess only STARTS the teardown, and the rejoin opens
+            # its deep link right after this returns. Relaunches that followed
+            # a kill have come up with no window at all, while the dock
+            # watchdog's relaunch (no kill in front of it) never has -- so the
+            # old client has to be really gone before Roblox's single-instance
+            # handling sees the new launch.
+            kernel32.WaitForSingleObject(h_process, ROBLOX_EXIT_WAIT_MS)
     finally:
         kernel32.CloseHandle(h_process)
 

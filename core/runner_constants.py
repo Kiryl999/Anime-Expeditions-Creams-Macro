@@ -638,6 +638,26 @@ AFK_CHAMBER_EXIT_CLICK = (660, 716)
 # fight the transition the first click already started.
 AFK_CHAMBER_CLICK_COOLDOWN = 5.0
 
+# A finished match whose result panel got shut before Victory/Defeat was read
+# shows only a "Game Results" button at the bottom centre, which reopens it.
+# Seen live on a portal round: the run polled that screen for the full
+# MATCH_RESULT_TIMEOUT. The button only exists once a match is over. Searched
+# in a band like the AFK banner, since it is checked on every result poll.
+GAME_RESULTS_IMAGE = "game_results"
+GAME_RESULTS_REGION = (420, 550, 312, 100)
+# The panel animates in; re-clicking inside this would shut it again.
+GAME_RESULTS_CLICK_COOLDOWN = 5.0
+
+# The portal picker's red X. A picker left open (its Select click did not
+# take) hides Play, so a lobby check read it as a disconnect and killed the
+# client. Whole-window search: the picker sits differently per layout (see
+# _find_portal_card), and this only runs after a lobby check already failed.
+PORTAL_PICKER_CLOSE_IMAGE = "portal_picker_close"
+# How long a lobby check waits for Play again after clearing a blocker (see
+# _clear_lobby_blocker). Longer than LOBBY_CHECK_TIMEOUT, because leaving the
+# AFK Chamber is a teleport, not a panel closing.
+LOBBY_BLOCKER_CLEAR_TIMEOUT = 30.0
+
 NAV_PLAY_IMAGE_NAMES = ("nav_play",)
 EXPEDITION_IMAGE_NAMES = ("expedition",)
 CHALLENGE_IMAGE_NAMES = ("challenge",)
@@ -671,6 +691,17 @@ GITHUB_REPO_URL = "https://github.com/Cweamy/Anime-Expeditions-Creams-Macro"
 YOUTUBE_URL = "https://www.youtube.com/@Cweamya"
 REJOIN_TIMEOUT = 90.0  # relaunching Roblox from scratch can take a while
 REJOIN_POLL_INTERVAL = 2.0
+# How long a deep link already handed to Roblox/Bloxstrap keeps later
+# attempts from opening a second one. The handoff has no process handle to
+# wait on, so "still pending" can only ever be a guess -- but it used to be
+# a PERMANENT one (the flag was cleared only when a rejoin actually reached
+# the lobby), which meant a handoff that could never succeed (the link fired
+# while the connection was down, Bloxstrap died, the launcher never started)
+# wedged every future rejoin AND main.py's dock watchdog auto-reopen, which
+# gates on the same flag -- an unattended run then sat on a closed Roblox
+# forever. Well past REJOIN_TIMEOUT so a merely slow boot is still waited
+# out rather than hit with a competing launch.
+REJOIN_PENDING_TTL = 300.0
 
 # Whether Start Game is even present depends on being the party leader, so
 # this is a quick presence check, not a long wait. Short on purpose: Start

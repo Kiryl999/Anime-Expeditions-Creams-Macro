@@ -173,6 +173,16 @@ def close_roblox_process(window_id: int) -> None:
         os.kill(pid, signal.SIGKILL)
     except Exception as exc:
         _log(f"force-kill of Roblox (pid {pid}) failed: {exc}")
+        return
+    # Same reason as window_win.close_roblox_process: the rejoin opens its
+    # deep link right after this returns, so the old client must be gone.
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        try:
+            os.kill(pid, 0)
+        except Exception:
+            return
+        time.sleep(0.1)
 
 
 def is_window(window_id: int) -> bool:

@@ -84,6 +84,30 @@ def test_get_client_rect_screen_translates_both_corners(monkeypatch):
     assert window_win.get_client_rect_screen(1) == (16, 30, 1168, 786)
 
 
+def test_close_roblox_process_waits_for_the_client_to_exit(monkeypatch):
+    """TerminateProcess only starts the teardown; the rejoin opens its deep
+    link right after this returns, so the handle must be waited on first."""
+    calls = []
+    monkeypatch.setattr(window_win, "get_window_pid", lambda hwnd: 4242)
+    monkeypatch.setattr(window_win.kernel32, "OpenProcess",
+                        lambda access, inherit, pid: calls.append(("open", access, pid)) or 77)
+    monkeypatch.setattr(window_win.kernel32, "TerminateProcess",
+                        lambda handle, code: calls.append(("terminate", handle)) or True)
+    monkeypatch.setattr(window_win.kernel32, "WaitForSingleObject",
+                        lambda handle, ms: calls.append(("wait", handle, ms)) or 0)
+    monkeypatch.setattr(window_win.kernel32, "CloseHandle",
+                        lambda handle: calls.append(("close", handle)) or True)
+
+    window_win.close_roblox_process(1)
+
+    assert calls == [
+        ("open", window_win.PROCESS_TERMINATE | window_win.SYNCHRONIZE, 4242),
+        ("terminate", 77),
+        ("wait", 77, window_win.ROBLOX_EXIT_WAIT_MS),
+        ("close", 77),
+    ]
+
+
 def test_set_dpi_aware_passes_pointer_sized_context(monkeypatch):
     """DPI_AWARENESS_CONTEXT is a pointer-sized pseudo-handle, so -4
     (PER_MONITOR_AWARE_V2) must not be marshalled as a 32-bit int -- it would

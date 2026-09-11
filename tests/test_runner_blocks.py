@@ -667,3 +667,79 @@ def test_afk_chamber_is_not_reclicked_inside_the_cooldown(monkeypatch):
     assert r._dismiss_afk_chamber(1, just_now) == just_now
     r._mouse.click.assert_not_called()
     assert r.searches == 0, "the cooldown should short-circuit before searching"
+
+
+# ---------------------------------------------------------------------------
+# "Game Results": reopen a result panel that was shut before it was read
+# ---------------------------------------------------------------------------
+
+class _ResultsRunner:
+    def __init__(self, match=None, raises=False):
+        self._match, self._raises = match, raises
+        self._mouse = MagicMock()
+        self.logs = []
+        self.searches = []
+        self.clicked = []
+
+    _reopen_game_results = None  # bound below
+
+    def _log(self, msg):
+        self.logs.append(msg)
+
+    def _set_status(self, **kw):
+        pass
+
+
+def _make_results_runner(match=None, raises=False, monkeypatch=None):
+    from core import runner as runner_mod
+    from core.runner import MacroRunner
+
+    r = _ResultsRunner(match, raises)
+    r._reopen_game_results = MacroRunner._reopen_game_results.__get__(r, _ResultsRunner)
+
+    def find_image(hwnd, name, region=None, **kw):
+        r.searches.append((name, region))
+        if r._raises:
+            raise runner_mod.vision.TemplateNotFound(name)
+        return r._match
+
+    monkeypatch.setattr(runner_mod.vision, "find_image", find_image)
+    monkeypatch.setattr(runner_mod.vision, "click_match",
+                        lambda mouse, hwnd, match: r.clicked.append(match))
+    return r
+
+
+def test_closed_result_screen_is_reopened(monkeypatch):
+    from core.runner_constants import GAME_RESULTS_IMAGE, GAME_RESULTS_REGION
+
+    match = {"cx": 576, "cy": 602, "score": 0.97}
+    r = _make_results_runner(match=match, monkeypatch=monkeypatch)
+    at = r._reopen_game_results(1, 0.0)
+
+    assert r.searches == [(GAME_RESULTS_IMAGE, GAME_RESULTS_REGION)]
+    assert r.clicked == [match]
+    assert at > 0.0, "the click time must be returned so the cooldown can start"
+    assert any("Game Results" in m for m in r.logs)
+
+
+def test_game_results_absent_does_nothing(monkeypatch):
+    r = _make_results_runner(match=None, monkeypatch=monkeypatch)
+    assert r._reopen_game_results(1, 0.0) == 0.0
+    assert r.clicked == []
+
+
+def test_game_results_without_a_reference_image_is_skipped(monkeypatch):
+    r = _make_results_runner(raises=True, monkeypatch=monkeypatch)
+    assert r._reopen_game_results(1, 0.0) == 0.0
+    assert r.clicked == []
+
+
+def test_game_results_is_not_reclicked_inside_the_cooldown(monkeypatch):
+    """The panel animates in -- a second click would shut it again."""
+    import time as _time
+
+    r = _make_results_runner(match={"cx": 576, "cy": 602, "score": 0.97}, monkeypatch=monkeypatch)
+    just_now = _time.time()
+    assert r._reopen_game_results(1, just_now) == just_now
+    assert r.clicked == []
+    assert r.searches == [], "the cooldown should short-circuit before searching"
