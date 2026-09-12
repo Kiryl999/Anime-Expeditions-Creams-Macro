@@ -2,6 +2,16 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.10] - 2026-09-12
+
+### Improved
+- **Portal picks skip the search when they can**: the portal picker used to be searched every time -- click the search box, clear it, type the portal name, wait for the list to filter, find the card. When you own only one portal, or the one you want is already at the front, its card is listed straight away. The macro now looks for it first and only searches when it is not there. It still only ever clicks the portal your task asks for, never simply the first one.
+- **The post-round portal offer is caught sooner**: it was only looked for after several slower checks in each pass of the match loop, so part of its ~20-second window was gone before the macro even looked. It is now checked first.
+
+### Fixed
+- **"Game Results" is no longer clicked during the portal offer**: v0.21.9 started reopening a closed result screen through its "Game Results" button, but that button is also on screen for the whole portal offer at the end of every portal round. It is now only clicked once it has stayed visible for 25 seconds, longer than the offer.
+- **Updated `fishing_xp` reference images.**
+
 ## [0.21.9] - 2026-09-11
 
 ### Fixed
