@@ -690,12 +690,16 @@ class _ResultsRunner:
         pass
 
 
+_RESULTS_BUTTON = {"cx": 576, "cy": 602, "score": 0.97}
+
+
 def _make_results_runner(match=None, raises=False, monkeypatch=None):
     from core import runner as runner_mod
     from core.runner import MacroRunner
 
     r = _ResultsRunner(match, raises)
     r._reopen_game_results = MacroRunner._reopen_game_results.__get__(r, _ResultsRunner)
+    r.now = [1000.0]
 
     def find_image(hwnd, name, region=None, **kw):
         r.searches.append((name, region))
@@ -706,40 +710,100 @@ def _make_results_runner(match=None, raises=False, monkeypatch=None):
     monkeypatch.setattr(runner_mod.vision, "find_image", find_image)
     monkeypatch.setattr(runner_mod.vision, "click_match",
                         lambda mouse, hwnd, match: r.clicked.append(match))
+    monkeypatch.setattr(runner_mod.time, "time", lambda: r.now[0])
     return r
 
 
-def test_closed_result_screen_is_reopened(monkeypatch):
-    from core.runner_constants import GAME_RESULTS_IMAGE, GAME_RESULTS_REGION
+def _fresh_results_state():
+    return {"seen_since": 0.0, "clicked_at": 0.0}
 
-    match = {"cx": 576, "cy": 602, "score": 0.97}
-    r = _make_results_runner(match=match, monkeypatch=monkeypatch)
-    at = r._reopen_game_results(1, 0.0)
 
-    assert r.searches == [(GAME_RESULTS_IMAGE, GAME_RESULTS_REGION)]
-    assert r.clicked == [match]
-    assert at > 0.0, "the click time must be returned so the cooldown can start"
+def test_game_results_is_left_alone_while_the_portal_offer_can_still_come(monkeypatch):
+    """The button is up for the whole ~20s offer at the end of every portal
+    round -- clicking it there showed up as a hover before each pick."""
+    from core.runner_constants import GAME_RESULTS_GRACE
+
+    r = _make_results_runner(match=_RESULTS_BUTTON, monkeypatch=monkeypatch)
+    state = _fresh_results_state()
+    r._reopen_game_results(1, state)
+    r.now[0] += GAME_RESULTS_GRACE - 1
+    r._reopen_game_results(1, state)
+
+    assert r.clicked == []
+    assert state["seen_since"] == 1000.0
+
+
+def test_a_result_screen_that_stays_closed_is_reopened(monkeypatch):
+    from core.runner_constants import GAME_RESULTS_GRACE, GAME_RESULTS_IMAGE, GAME_RESULTS_REGION
+
+    r = _make_results_runner(match=_RESULTS_BUTTON, monkeypatch=monkeypatch)
+    state = _fresh_results_state()
+    r._reopen_game_results(1, state)
+    r.now[0] += GAME_RESULTS_GRACE
+    r._reopen_game_results(1, state)
+
+    assert r.searches[0] == (GAME_RESULTS_IMAGE, GAME_RESULTS_REGION)
+    assert r.clicked == [_RESULTS_BUTTON]
+    assert state["clicked_at"] == r.now[0], "the caller holds other clicks off from here"
     assert any("Game Results" in m for m in r.logs)
 
 
-def test_game_results_absent_does_nothing(monkeypatch):
-    r = _make_results_runner(match=None, monkeypatch=monkeypatch)
-    assert r._reopen_game_results(1, 0.0) == 0.0
-    assert r.clicked == []
+def test_the_wait_starts_over_when_the_button_goes_away(monkeypatch):
+    """A break means the panel came back -- the grace is for an UNBROKEN run."""
+    from core.runner_constants import GAME_RESULTS_GRACE
+
+    r = _make_results_runner(match=_RESULTS_BUTTON, monkeypatch=monkeypatch)
+    state = _fresh_results_state()
+    r._reopen_game_results(1, state)
+    r.now[0] += GAME_RESULTS_GRACE - 1
+    r._match = None
+    r._reopen_game_results(1, state)
+    assert state["seen_since"] == 0.0
+
+    r._match = _RESULTS_BUTTON
+    r.now[0] += 2
+    r._reopen_game_results(1, state)
+    assert r.clicked == [], "the first sighting after a break starts a fresh wait"
+
+
+def test_a_click_restarts_the_wait(monkeypatch):
+    """A button that does not respond is retried at the grace pace, not every poll."""
+    from core.runner_constants import GAME_RESULTS_GRACE
+
+    r = _make_results_runner(match=_RESULTS_BUTTON, monkeypatch=monkeypatch)
+    state = _fresh_results_state()
+    r._reopen_game_results(1, state)
+    r.now[0] += GAME_RESULTS_GRACE
+    r._reopen_game_results(1, state)
+    assert len(r.clicked) == 1
+
+    r.now[0] += GAME_RESULTS_GRACE - 1
+    r._reopen_game_results(1, state)
+    assert len(r.clicked) == 1
+    r.now[0] += 1
+    r._reopen_game_results(1, state)
+    assert len(r.clicked) == 2
 
 
 def test_game_results_without_a_reference_image_is_skipped(monkeypatch):
     r = _make_results_runner(raises=True, monkeypatch=monkeypatch)
-    assert r._reopen_game_results(1, 0.0) == 0.0
+    state = _fresh_results_state()
+    r._reopen_game_results(1, state)
     assert r.clicked == []
+    assert state == _fresh_results_state()
 
 
-def test_game_results_is_not_reclicked_inside_the_cooldown(monkeypatch):
-    """The panel animates in -- a second click would shut it again."""
-    import time as _time
+def test_the_portal_offer_is_checked_before_the_slow_full_window_scans():
+    """The offer takes itself away after ~20s. It used to be checked only
+    after the reconnect, lobby, AFK and Game Results scans, each a full sweep
+    on a miss -- so it lost most of a poll before it was even looked for."""
+    import inspect
 
-    r = _make_results_runner(match={"cx": 576, "cy": 602, "score": 0.97}, monkeypatch=monkeypatch)
-    just_now = _time.time()
-    assert r._reopen_game_results(1, just_now) == just_now
-    assert r.clicked == []
-    assert r.searches == [], "the cooldown should short-circuit before searching"
+    from core.runner import MacroRunner
+
+    source = inspect.getsource(MacroRunner._wait_for_match_result)
+    # The calls themselves -- the names alone also turn up in comments.
+    offer = source.index("self._take_portal_offer_if_found(")
+    for later in ("for name in RECONNECT_IMAGE_NAMES:", 'vision.find_image(hwnd, "nav_play")',
+                  "self._dismiss_afk_chamber(", "self._reopen_game_results("):
+        assert offer < source.index(later), f"the portal offer must be checked before {later}"

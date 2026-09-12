@@ -411,6 +411,12 @@ PORTAL_SEARCH_CLEAR_KEYS = 32  # longest plausible leftover query, with room to 
 # or animating in -- especially the post-victory one, which opens on top of
 # the result screen rather than on a settled inventory tab.
 PORTAL_CARD_TIMEOUT = 6.0
+# How long to look for the wanted card BEFORE typing a search (see
+# PortalsOp._peek_portal_card). With a single portal owned -- or the wanted
+# one already at the front -- the picker lists it straight away and the whole
+# search is wasted time. Short on purpose: it is paid on every pick where the
+# card is NOT listed yet, before the normal search runs.
+PORTAL_CARD_PEEK_TIMEOUT = 1.5
 
 # Tournament mode: reached through Play like Story/Raid -- its nav_tournament
 # button sits on the same gamemode menu (picked instead of Story), NOT via its
@@ -645,7 +651,12 @@ AFK_CHAMBER_CLICK_COOLDOWN = 5.0
 # in a band like the AFK banner, since it is checked on every result poll.
 GAME_RESULTS_IMAGE = "game_results"
 GAME_RESULTS_REGION = (420, 550, 312, 100)
-# The panel animates in; re-clicking inside this would shut it again.
+# ...but the button is also up for the whole ~20s portal offer at the end of a
+# normal portal round (the result panel only comes after the pick), so it only
+# counts as "stayed shut" once it has been visible this long without a break.
+GAME_RESULTS_GRACE = 25.0
+# After a click, other clicks (fishing) hold off this long while the panel
+# animates in, so nothing lands on it and shuts it again.
 GAME_RESULTS_CLICK_COOLDOWN = 5.0
 
 # The portal picker's red X. A picker left open (its Select click did not

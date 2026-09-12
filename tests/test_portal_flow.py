@@ -35,6 +35,9 @@ def _runner():
     runner._find_portal_card = (
         lambda hwnd, stop_event, candidates: runner.clicked.append(("card", candidates))
         or ({"score": 0.97, "cx": 500, "cy": 250}, candidates[0]))
+    # The search path by default -- the "card already listed" shortcut is
+    # tested on its own below.
+    runner._peek_portal_card = lambda hwnd, stop_event, candidates: (None, None)
     mouse = type("Mouse", (), {})()
     mouse.click = lambda x, y, **k: runner.clicked.append(("click", x, y))
     runner._mouse = mouse
@@ -98,6 +101,26 @@ def test_select_summer_portal_backs_out_when_confirm_missing(monkeypatch):
             None if name == "portal_activate" else {"score": 0.99}))
     assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=False) is False
     assert runner.backs == [1]
+
+
+def test_select_summer_portal_skips_the_search_when_the_card_is_already_listed(monkeypatch):
+    """One portal owned: the tier card is listed before anything is typed, so
+    the box is never touched and the card is clicked straight away."""
+    runner = _runner()
+    monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
+    card = {"score": 0.98, "cx": 290, "cy": 255}
+    runner._peek_portal_card = lambda hwnd, stop_event, candidates: (card, "summer_portal")
+    clicked = []
+    monkeypatch.setattr(runner_module.vision, "click_match",
+                        lambda mouse, hwnd, match: clicked.append(match))
+
+    assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=False) is True
+    images = [call[1] for call in runner.clicked if call[0] == "image"]
+    assert images == ["select_new_portal", "portal_activate"], "no portal_search click"
+    assert runner.typed == []
+    assert not any(call[0] == "card" for call in runner.clicked), "no card search"
+    assert clicked == [card]
+    assert any("skipping the search" in line for line in runner.logged)
 
 
 def _enter_stage_runner(calls):

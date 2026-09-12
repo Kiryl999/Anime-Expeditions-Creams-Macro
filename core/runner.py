@@ -2198,7 +2198,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             deadline = time.time() + MATCH_RESULT_TIMEOUT
         lobby_sightings = 0   # consecutive polls that found the lobby's Play button
         afk_clicked_at = 0.0  # last time the AFK Chamber exit was clicked
-        results_reopened_at = 0.0  # last time "Game Results" was clicked
+        results_state = {"seen_since": 0.0, "clicked_at": 0.0}  # see _reopen_game_results
         # {"handled_at", "seen_at"} -- the settle is deferred, not slept, so the
         # poll loop keeps picking upgrade cards and clicking Continues meanwhile.
         encounter_state = {"handled_at": 0.0, "seen_at": 0.0}
@@ -2242,6 +2242,19 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if self._battle_leave_requested:
                 self._battle_leave_requested = False
                 return "left"
+
+            # The three-portal offer opens BEFORE the Victory screen and takes
+            # itself away after ~20s, picking at random -- so it has to be
+            # caught here, mid-poll, not after the result (see
+            # _take_portal_offer_if_found). Checked ahead of every other
+            # screen scan: the reconnect and lobby checks below each sweep the
+            # whole window at several sizes on a miss, and running them first
+            # cost the only time-critical window in this loop most of a poll.
+            clicked_something = False
+            if watch_portal_offer and not self._portal_offer_taken:
+                if self._take_portal_offer_if_found(hwnd):
+                    self._portal_offer_taken = True
+                    clicked_something = True
 
             # Roblox's own Reconnect/Retry prompt can show up mid-battle too,
             # not just during the teleport-in wait -- this used to only be
@@ -2289,24 +2302,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
             afk_clicked_at = self._dismiss_afk_chamber(hwnd, afk_clicked_at)
 
-            clicked_something = False
-            results_reopened_at = self._reopen_game_results(hwnd, results_reopened_at)
-            if time.time() - results_reopened_at < GAME_RESULTS_CLICK_COOLDOWN:
+            self._reopen_game_results(hwnd, results_state)
+            if time.time() - results_state["clicked_at"] < GAME_RESULTS_CLICK_COOLDOWN:
                 # Hold the other clicks (a fishing cast in particular) off
                 # while the panel animates back in, so nothing lands on it
                 # and shuts it again before Victory/Defeat is read.
                 clicked_something = True
             if watch_close_popup:
                 clicked_something = self._click_close_popup_if_found(hwnd) or clicked_something
-
-            # The three-portal offer opens BEFORE the Victory screen and takes
-            # itself away after ~20s, picking at random -- so it has to be
-            # caught here, mid-poll, not after the result (see
-            # _take_portal_offer_if_found).
-            if watch_portal_offer and not self._portal_offer_taken:
-                if self._take_portal_offer_if_found(hwnd):
-                    self._portal_offer_taken = True
-                    clicked_something = True
 
             # Auto Fishing goes LAST in the tick, and only when nothing else
             # clicked. A cast is a plain left-click on water; a Place Unit
@@ -4687,9 +4690,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         vision.click_match(self._mouse, hwnd, match)
         return True
 
-    def _reopen_game_results(self, hwnd, last_clicked_at: float) -> float:
-        """Reopen a finished match's result panel when it was shut before
-        Victory/Defeat could be read.
+    def _reopen_game_results(self, hwnd, state: dict) -> None:
+        """Reopen a finished match's result panel when it stays shut.
 
         Seen live on a portal round: the middle portal was taken, Victory
         never matched, and the run polled a finished match (wave 15/15, no
@@ -4698,22 +4700,37 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         only exists once a match is over, so this cannot interrupt a live
         round.
 
-        Same rate limit and return shape as _dismiss_afk_chamber. Optional:
-        no game_results crop means the check does nothing.
+        It is ALSO up during the normal end of a portal round, though: the
+        three-portal offer comes first and the result panel only after the
+        pick, so the button sits there for the whole ~20s offer. Clicking it
+        then was reported on every portal round, right before the pick. So
+        the button has to have been up for GAME_RESULTS_GRACE without a
+        break -- longer than the offer -- before it counts as a panel that
+        is not coming back. A click restarts that wait, so a button that does
+        not respond is retried at the same pace.
+
+        ``state`` carries {"seen_since", "clicked_at"} between polls; the
+        caller reads clicked_at to hold other clicks off while the panel
+        animates in. Optional: no game_results crop means nothing happens.
         """
-        if time.time() - last_clicked_at < GAME_RESULTS_CLICK_COOLDOWN:
-            return last_clicked_at
         try:
             match = vision.find_image(hwnd, GAME_RESULTS_IMAGE, region=GAME_RESULTS_REGION)
         except vision.TemplateNotFound:
-            return last_clicked_at
+            return
+        now = time.time()
         if match is None:
-            return last_clicked_at
-        self._log(f'[Macro] The result screen was closed ("Game Results" is showing, score '
-                  f'{match["score"]:.2f}) -- reopening it.')
+            state["seen_since"] = 0.0
+            return
+        if not state["seen_since"]:
+            state["seen_since"] = now
+        if now - state["seen_since"] < GAME_RESULTS_GRACE:
+            return
+        self._log(f'[Macro] The result screen has stayed closed for {GAME_RESULTS_GRACE:.0f}s '
+                  f'("Game Results" is showing, score {match["score"]:.2f}) -- reopening it.')
         self._set_status(action="Reopening the result screen...")
         vision.click_match(self._mouse, hwnd, match)
-        return time.time()
+        state["clicked_at"] = now
+        state["seen_since"] = now
 
     def _find_gamemode_card(self, hwnd, stop_event: threading.Event, names, label: str):
         """Locate a gamemode card, widening the search before giving up.

@@ -160,31 +160,43 @@ class EventOps:
                 return False
             time.sleep(SETTLE_DELAY)
 
-        # Search the portal grid for Summer (other portals exist, and the box
-        # may still hold a previous query). Aiming and clearing both live in
-        # _focus_portal_search -- see it for why this no longer clicks the
-        # crop centre blindly and no longer clears with Ctrl+A.
-        self._set_status(action="Searching Summer portals...")
-        if not self._focus_portal_search(hwnd, stop_event):
-            self._spam_back_until_gone(hwnd, stop_event)
-            return False
-        self._keyboard.type_text("summer")
-        time.sleep(SETTLE_DELAY)
-        if self._checkpoint(stop_event):
-            return False
-
-        # The tier card (tier-specific crop, see the docstring above). Goes
-        # through the shared _find_portal_card so this path gets the same
-        # region-then-whole-window widening as the Inventory one -- the list
-        # region is a hardcoded box and does not survive every layout.
+        # With one portal owned (or Summer already at the front) the tier card
+        # is listed before anything is typed, and the search is skipped --
+        # see PortalsOp._peek_portal_card.
         self._set_status(action="Selecting Summer portal tier...")
-        match, _found = self._find_portal_card(hwnd, stop_event, ("summer_portal",))
-        if match is None:
-            self._log('[Macro] No Summer portal card found, on the picker or anywhere on screen. '
-                      'If it is visible, add a crop of it as "summer_portal" via '
-                      'Settings > General > Image Manager.')
-            self._spam_back_until_gone(hwnd, stop_event)
-            return False
+        match, _found = self._peek_portal_card(hwnd, stop_event, ("summer_portal",))
+        if match is not None:
+            self._log(f'[Macro] The Summer portal card is already listed (score {match["score"]:.2f}) '
+                      f'-- skipping the search and clicking it.')
+        else:
+            if self._checkpoint(stop_event):
+                return False
+            # Search the portal grid for Summer (other portals exist, and the
+            # box may still hold a previous query). Aiming and clearing both
+            # live in _focus_portal_search -- see it for why this no longer
+            # clicks the crop centre blindly and no longer clears with Ctrl+A.
+            self._set_status(action="Searching Summer portals...")
+            if not self._focus_portal_search(hwnd, stop_event):
+                self._spam_back_until_gone(hwnd, stop_event)
+                return False
+            self._keyboard.type_text("summer")
+            time.sleep(SETTLE_DELAY)
+            if self._checkpoint(stop_event):
+                return False
+
+            # The tier card (tier-specific crop, see the docstring above).
+            # Goes through the shared _find_portal_card so this path gets the
+            # same region-then-whole-window widening as the Inventory one --
+            # the list region is a hardcoded box and does not survive every
+            # layout.
+            self._set_status(action="Selecting Summer portal tier...")
+            match, _found = self._find_portal_card(hwnd, stop_event, ("summer_portal",))
+            if match is None:
+                self._log('[Macro] No Summer portal card found, on the picker or anywhere on screen. '
+                          'If it is visible, add a crop of it as "summer_portal" via '
+                          'Settings > General > Image Manager.')
+                self._spam_back_until_gone(hwnd, stop_event)
+                return False
         vision.click_match(self._mouse, hwnd, match)
         if self._checkpoint(stop_event):
             return False

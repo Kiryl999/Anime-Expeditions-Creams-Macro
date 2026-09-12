@@ -153,6 +153,35 @@ class PortalsOp:
             self._log(f"[Macro] {exc}")
         return None, None
 
+    def _peek_portal_card(self, hwnd, stop_event: threading.Event, candidates: tuple):
+        """Look for the wanted portal card before typing a search.
+
+        The search exists to filter a list with several portals in it. With
+        only one portal owned -- or the wanted one already at the front --
+        the picker lists the card straight away, and focusing the box,
+        clearing it, typing and waiting for the filter is all wasted time
+        (and two more places for a pick to go wrong). The card crop is
+        tier-specific, so a hit here is the portal that was asked for, never
+        just whichever one happens to come first.
+
+        Brief on purpose: the list region gets PORTAL_CARD_PEEK_TIMEOUT, then
+        the whole window gets one look, since the region does not fit every
+        layout (see _find_portal_card). A miss costs about that long before
+        the normal search runs.
+
+        Returns (match, name), or (None, None) when the card is not listed.
+        """
+        try:
+            match, name = vision.wait_for_image_any(
+                hwnd, candidates, region=self._portal_list_region(),
+                timeout=PORTAL_CARD_PEEK_TIMEOUT, stop_event=stop_event)
+            if match is None and not (stop_event is not None and stop_event.is_set()):
+                match, name = vision.find_image_any(hwnd, candidates)
+        except vision.TemplateNotFound:
+            # No crop at all -- the search that follows reports that properly.
+            return None, None
+        return match, name
+
     def _select_portal_on_picker(self, hwnd, stop_event: threading.Event,
                                  query: str = "summer") -> bool:
         """Search an already-open portal picker for `query`, click the matching
@@ -164,35 +193,43 @@ class PortalsOp:
         """
         self._set_status(action="Selecting portal...")
 
-        # Focus + clear the search box, then type. Was a blind click on the
-        # region centre with no check that anything was hit at all.
-        if not self._focus_portal_search(hwnd, stop_event):
-            self._spam_back_until_gone(hwnd, stop_event)
-            return False
-        self._keyboard.type_text(query)
-        self._interruptible_sleep(SETTLE_DELAY, stop_event)
-        if self._checkpoint(stop_event):
-            return False
-
-        # Find the portal card, boxed to the portal-card list region. The
-        # query drives WHICH crop is looked for, not just what gets typed:
+        # The query drives WHICH crop is looked for, not just what gets typed:
         # "<query>_portal" then "<query>", so running a portal other than
         # Summer is just adding your own crop under that name (Settings >
         # General > Image Manager). summer_portal stays last as the shipped
-        # fallback, so an unnamed/new portal still matches the Summer card
-        # the search box already filtered down to.
+        # fallback, so an unnamed/new portal still matches the Summer card.
         slug = "".join(c if c.isalnum() else "_" for c in query.strip().lower()).strip("_")
         candidates = [n for n in (f"{slug}_portal", slug, "summer_portal") if n]
         candidates = list(dict.fromkeys(candidates))  # de-dup, keep priority order
-        match, found_name = self._find_portal_card(hwnd, stop_event, tuple(candidates))
-        if match is None:
-            self._log(f'[Macro] No "{query}" portal card found, on the picker or anywhere on screen '
-                      f'(searched for {", ".join(candidates)}). If the card is visible, add a crop of '
-                      f'it under one of those names via Settings > General > Image Manager.')
-            self._spam_back_until_gone(hwnd, stop_event)
-            return False
-        self._log(f'[Macro] Found the "{query}" portal card via "{found_name}" '
-                  f'(score {match["score"]:.2f}) -- clicking it.')
+
+        # Already listed (one portal owned, or this one at the front)? Then
+        # there is nothing to search for -- see _peek_portal_card.
+        match, found_name = self._peek_portal_card(hwnd, stop_event, tuple(candidates))
+        if match is not None:
+            self._log(f'[Macro] The "{query}" portal card is already listed ("{found_name}", '
+                      f'score {match["score"]:.2f}) -- skipping the search and clicking it.')
+        else:
+            if self._checkpoint(stop_event):
+                return False
+            # Focus + clear the search box, then type. Was a blind click on
+            # the region centre with no check that anything was hit at all.
+            if not self._focus_portal_search(hwnd, stop_event):
+                self._spam_back_until_gone(hwnd, stop_event)
+                return False
+            self._keyboard.type_text(query)
+            self._interruptible_sleep(SETTLE_DELAY, stop_event)
+            if self._checkpoint(stop_event):
+                return False
+
+            match, found_name = self._find_portal_card(hwnd, stop_event, tuple(candidates))
+            if match is None:
+                self._log(f'[Macro] No "{query}" portal card found, on the picker or anywhere on screen '
+                          f'(searched for {", ".join(candidates)}). If the card is visible, add a crop of '
+                          f'it under one of those names via Settings > General > Image Manager.')
+                self._spam_back_until_gone(hwnd, stop_event)
+                return False
+            self._log(f'[Macro] Found the "{query}" portal card via "{found_name}" '
+                      f'(score {match["score"]:.2f}) -- clicking it.')
         vision.click_match(self._mouse, hwnd, match)
         if self._checkpoint(stop_event):
             return False
