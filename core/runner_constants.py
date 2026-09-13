@@ -357,8 +357,24 @@ PORTAL_OFFER_IMAGE = "portal_offer"
 # does nothing, and the round is otherwise untouched.
 FISHING_ROD_IMAGE = "fishing_rod"   # the rod button, bottom-left
 FISHING_XP_IMAGE = "fishing_xp"     # the fishing XP bar, bottom-right -- only on screen while the rod is OUT
+# Where the bar (and its rank label) sits: the bottom-right corner, with room
+# for a layout that draws it a little off. Searched ONLY here -- a
+# whole-window search at a lowered sensitivity found something label-like
+# elsewhere on screen and reported "rod is already out" with the rod away,
+# so it was never taken out.
+FISHING_XP_REGION = (760, 640, 392, 116)
 FISHING_ROD_VERIFY_TIMEOUT = 6.0    # how long to wait for the XP bar after clicking the rod
-FISHING_XP_SETTLE_TIMEOUT = 3.0     # how long to look for the bar BEFORE deciding the rod is away
+# The rod is watched for the whole round, not checked once per match: the
+# game can put it away mid-round, and one run lost 9.5 hours of fishing to a
+# single failed attempt that switched the feature off for good. The button
+# TOGGLES, though, so one bad read must never click it -- the bar has to be
+# missing on several looks in a row first, and a click that does not bring the
+# bar up is retried later rather than straight away.
+FISHING_CHECK_INTERVAL = 30.0       # how often the bar is looked at while fishing
+FISHING_MISS_RECHECK = 4.0          # spacing of the confirming looks once the bar is missing
+FISHING_MISS_CONFIRMATIONS = 3      # looks in a row without the bar before the rod is clicked
+FISHING_RETRY_DELAY = 180.0         # wait after a click that did not bring the bar up
+FISHING_MAX_ATTEMPTS_PER_MATCH = 2  # failed clicks before fishing pauses until the next match
 # Re-cast cadence. A bite takes 6-12s and an extra click neither cancels a
 # cast nor costs anything (only clicking the rod button again does), so this
 # is deliberately at the fast end: it re-casts promptly after a catch instead
@@ -668,6 +684,20 @@ PORTAL_PICKER_CLOSE_IMAGE = "portal_picker_close"
 # _clear_lobby_blocker). Longer than LOBBY_CHECK_TIMEOUT, because leaving the
 # AFK Chamber is a teleport, not a panel closing.
 LOBBY_BLOCKER_CLEAR_TIMEOUT = 30.0
+
+# Tidal Siege (Event > Infinite) restarts in place at its wave limit instead
+# of leaving: Settings (gear) -> Restart Game -> the red "Restart" confirm.
+# The units stay placed, so the next repeat skips Pre Start and only presses
+# Start Game again (see _restart_infinite_at_wave_limit).
+RESTART_GAME_IMAGE = "restart_btn"          # the gold Restart Game icon in Settings
+RESTART_CONFIRM_IMAGE = "restart_confirm"   # the red "Restart" confirmation
+# How long to look for Restart Game as soon as Settings opens, before falling
+# back to typing it into the Settings search.
+RESTART_GAME_LOOK_TIMEOUT = 3.0
+# The confirmation is clicked when it shows, but not required -- Start Game
+# coming back afterwards is the actual proof the waves reset.
+RESTART_CONFIRM_TIMEOUT = 4.0
+RESTART_START_GAME_TIMEOUT = 15.0
 
 NAV_PLAY_IMAGE_NAMES = ("nav_play",)
 EXPEDITION_IMAGE_NAMES = ("expedition",)

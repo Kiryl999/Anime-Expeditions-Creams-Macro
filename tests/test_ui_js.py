@@ -176,7 +176,8 @@ def test_event_infinite_task_summary_shows_its_exit_wave(tmp_path):
         })));
     """, tmp_path)
     assert out["title"].startswith("Event") and "Infinite" in out["title"]
-    assert "Stop after wave 30" in out["meta"]
+    # Tidal Siege restarts in place at its limit instead of leaving.
+    assert "Restart after wave 30" in out["meta"]
 
 
 def test_tournament_task_summary_names_its_type_and_hides_play_mode(tmp_path):

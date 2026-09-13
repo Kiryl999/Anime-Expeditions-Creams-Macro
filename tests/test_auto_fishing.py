@@ -1,4 +1,4 @@
-"""Auto Fishing: rod out once, then cast on a timer while the round runs.
+"""Auto Fishing: watch the rod for the whole round, cast on a timer.
 
 Casting is a plain left-click on water, so the feature is deliberately thin.
 The parts worth pinning down are the ones that can quietly ruin a round: the
@@ -16,18 +16,24 @@ import pytest
 import core.runner as runner_module
 from core.runner import MacroRunner
 from core.runner_constants import (
-    DEFAULT_COORDS, FISHING_CLICK_INTERVAL, FISHING_ROD_IMAGE, FISHING_XP_IMAGE,
+    DEFAULT_COORDS, FISHING_CHECK_INTERVAL, FISHING_CLICK_INTERVAL,
+    FISHING_MAX_ATTEMPTS_PER_MATCH, FISHING_MISS_CONFIRMATIONS, FISHING_MISS_RECHECK,
+    FISHING_RETRY_DELAY, FISHING_ROD_IMAGE, FISHING_XP_IMAGE, FISHING_XP_REGION,
 )
+
+# Where the bar's rank label sits in the 1152x756 reference space.
+_XP_BAR = {"score": 0.97, "cx": 1044, "cy": 721}
 
 
 def _runner(monkeypatch, xp_frames=(), rod_found=True):
     runner = object.__new__(MacroRunner)
     runner.events = []
     runner.logged = []
+    runner.xp_regions = []
     runner._coords = dict(DEFAULT_COORDS)
-    runner._fishing_rod_attempted = False
-    runner._fishing_gave_up = False
-    runner._best_match_score = lambda hwnd, name: 0.42
+    runner._reset_fishing_for_match()
+    runner._best_match_score = lambda hwnd, name, region=None: 0.42
+    runner._debug_save = lambda hwnd, name, match: None
     runner._save_debug_screenshot_unconditional = lambda hwnd, name: None
     runner._log = lambda message: runner.logged.append(message)
     runner._set_status = lambda **kw: None
@@ -40,13 +46,37 @@ def _runner(monkeypatch, xp_frames=(), rod_found=True):
     runner._mouse = mouse
 
     seen = iter(xp_frames)
-    monkeypatch.setattr(runner_module.vision, "find_image",
-                        lambda hwnd, name, **k: next(seen, None))
-    monkeypatch.setattr(runner_module.vision, "wait_for_image",
-                        lambda hwnd, name, **k: next(seen, None))
+
+    def look(hwnd, name, **k):
+        runner.xp_regions.append(k.get("region"))
+        return next(seen, None)
+
+    monkeypatch.setattr(runner_module.vision, "find_image", look)
+    monkeypatch.setattr(runner_module.vision, "wait_for_image", look)
     monkeypatch.setattr(runner_module.vision, "ref_to_screen",
                         lambda hwnd, x, y: (int(x), int(y)))
     return runner
+
+
+def _clock(monkeypatch, start=1000.0):
+    """A clock the rod watch's pacing can be stepped through."""
+    now = [start]
+    monkeypatch.setattr(runner_module.time, "time", lambda: now[0])
+    return now
+
+
+def _look(runner, clock, times, step=FISHING_MISS_RECHECK):
+    """Ask the rod watch ``times`` times, ``step`` seconds apart. Returns the
+    last answer."""
+    result = None
+    for _ in range(times):
+        result = runner._ensure_rod_out(1)
+        clock[0] += step
+    return result
+
+
+def _rod_clicks(runner):
+    return runner.events.count(("image", FISHING_ROD_IMAGE))
 
 
 # ---------------------------------------------------------------------------
@@ -90,40 +120,113 @@ def test_the_interval_is_configurable_with_a_sane_floor(task, expected):
 
 
 # ---------------------------------------------------------------------------
-# Getting the rod out
+# Watching the rod
 # ---------------------------------------------------------------------------
 
 def test_the_rod_button_is_not_clicked_when_the_rod_is_already_out(monkeypatch):
     """Clicking it again would put the rod AWAY. The XP bar is checked first
     precisely so that cannot happen."""
-    runner = _runner(monkeypatch, xp_frames=[{"score": 0.97}])
+    runner = _runner(monkeypatch, xp_frames=[_XP_BAR])
 
     assert runner._ensure_rod_out(1) is True
-    assert not any(e[0] == "image" for e in runner.events)
+    assert _rod_clicks(runner) == 0
 
 
-def test_the_rod_is_taken_out_when_the_bar_is_absent(monkeypatch):
-    runner = _runner(monkeypatch, xp_frames=[None, {"score": 0.97}])
+def test_the_rod_is_taken_out_once_the_bar_stays_away(monkeypatch):
+    runner = _runner(monkeypatch, xp_frames=[None, None, None, _XP_BAR])
+    clock = _clock(monkeypatch)
+
+    assert _look(runner, clock, FISHING_MISS_CONFIRMATIONS) is True
+    assert _rod_clicks(runner) == 1
+    assert any("rod is out" in line for line in runner.logged)
+
+
+def test_one_bad_look_never_touches_the_rod(monkeypatch):
+    """The button toggles. A single frame the label did not match on -- a
+    dark phase of the map was enough -- must not put a rod that is out away."""
+    runner = _runner(monkeypatch, xp_frames=[_XP_BAR, None, None, _XP_BAR])
+    clock = _clock(monkeypatch)
 
     assert runner._ensure_rod_out(1) is True
-    assert ("image", FISHING_ROD_IMAGE) in runner.events
+    clock[0] += FISHING_CHECK_INTERVAL
+    assert _look(runner, clock, FISHING_MISS_CONFIRMATIONS) is True, (
+        "casting carries on while a miss is being confirmed")
+    assert _rod_clicks(runner) == 0
 
 
-def test_a_rod_click_that_never_shows_the_bar_gives_up_quietly(monkeypatch):
-    """Fishing must never be able to stop a run -- it reports and steps aside."""
-    runner = _runner(monkeypatch, xp_frames=[None, None])
+def test_a_rod_the_game_puts_away_mid_round_is_noticed(monkeypatch):
+    """Checked once per match, a rod that went away stayed away until the
+    next match -- in Infinite that is a hundred waves."""
+    runner = _runner(monkeypatch, xp_frames=[_XP_BAR, None, None, None, _XP_BAR])
+    clock = _clock(monkeypatch)
 
-    assert runner._ensure_rod_out(1) is False
+    assert runner._ensure_rod_out(1) is True
+    clock[0] += FISHING_CHECK_INTERVAL
+    assert _look(runner, clock, FISHING_MISS_CONFIRMATIONS) is True
+    assert _rod_clicks(runner) == 1
+
+
+def test_the_bar_is_not_searched_on_every_tick(monkeypatch):
+    runner = _runner(monkeypatch, xp_frames=[_XP_BAR] * 5)
+    clock = _clock(monkeypatch)
+
+    runner._ensure_rod_out(1)
+    for _ in range(10):
+        clock[0] += 1
+        assert runner._ensure_rod_out(1) is True
+
+    assert len(runner.xp_regions) == 1, "looked at again only after FISHING_CHECK_INTERVAL"
+
+
+def test_a_rod_click_that_never_shows_the_bar_is_retried_later(monkeypatch):
+    """Fishing must never stop a run -- and one failed click must not stop
+    fishing for the rest of it either: that cost a run 9.5 hours."""
+    runner = _runner(monkeypatch, xp_frames=[None] * 4)
+    clock = _clock(monkeypatch)
+
+    assert _look(runner, clock, FISHING_MISS_CONFIRMATIONS) is False
     assert any("XP bar never showed" in line for line in runner.logged)
     assert any("just put it away" in line for line in runner.logged), (
         "the likeliest cause has to be named -- a wrong crop makes this click "
         "TOGGLE the rod off instead of on")
+    assert any("Trying again in" in line for line in runner.logged)
+    assert runner._fishing_paused is False
 
 
-def test_a_missing_rod_button_gives_up_quietly(monkeypatch):
-    runner = _runner(monkeypatch, xp_frames=[None], rod_found=False)
+def test_nothing_is_clicked_again_before_the_retry_delay(monkeypatch):
+    runner = _runner(monkeypatch, xp_frames=[None] * 20)
+    clock = _clock(monkeypatch)
 
-    assert runner._ensure_rod_out(1) is False
+    _look(runner, clock, FISHING_MISS_CONFIRMATIONS)
+    _look(runner, clock, 10, step=FISHING_RETRY_DELAY / 20)
+
+    assert _rod_clicks(runner) == 1
+
+
+def test_repeated_failures_pause_only_until_the_next_match(monkeypatch):
+    runner = _runner(monkeypatch, xp_frames=[None] * 20)
+    clock = _clock(monkeypatch)
+
+    _look(runner, clock, FISHING_MISS_CONFIRMATIONS)      # first try fails
+    clock[0] += FISHING_RETRY_DELAY
+    _look(runner, clock, FISHING_MISS_CONFIRMATIONS)      # second try fails
+    assert _rod_clicks(runner) == FISHING_MAX_ATTEMPTS_PER_MATCH
+    assert runner._fishing_paused is True
+    assert any("Pausing fishing until the next match" in line for line in runner.logged)
+
+    clock[0] += FISHING_RETRY_DELAY
+    _look(runner, clock, FISHING_MISS_CONFIRMATIONS)
+    assert _rod_clicks(runner) == FISHING_MAX_ATTEMPTS_PER_MATCH, "paused -- the button is left alone"
+
+    runner._reset_fishing_for_match()
+    assert runner._fishing_paused is False
+
+
+def test_a_missing_rod_button_is_retried_later(monkeypatch):
+    runner = _runner(monkeypatch, xp_frames=[None] * 3, rod_found=False)
+    clock = _clock(monkeypatch)
+
+    assert _look(runner, clock, FISHING_MISS_CONFIRMATIONS) is False
     assert any("couldn't find the rod button" in line for line in runner.logged)
 
 
@@ -135,6 +238,92 @@ def test_a_missing_crop_is_reported_once_and_not_fatal(monkeypatch):
 
     assert runner._ensure_rod_out(1) is False
     assert any(FISHING_XP_IMAGE in line or "no crop" in line for line in runner.logged)
+
+
+def test_a_missing_crop_is_logged_once_not_every_tick(monkeypatch):
+    """This runs on every poll of every fishing round -- a log line per tick
+    would bury the run."""
+    runner = _runner(monkeypatch)
+    monkeypatch.setattr(
+        runner_module.vision, "find_image",
+        lambda *a, **k: (_ for _ in ()).throw(runner_module.vision.TemplateNotFound("no crop")))
+
+    for _ in range(5):
+        runner._ensure_rod_out(1)
+
+    assert len(runner.logged) == 1
+
+
+def test_the_failure_says_how_close_the_crop_got(monkeypatch):
+    """\"Not found\" is ambiguous: 0.88 against a 0.90 threshold needs the
+    sensitivity lowered, 0.30 is the wrong picture entirely."""
+    runner = _runner(monkeypatch, xp_frames=[None] * 4)
+    clock = _clock(monkeypatch)
+
+    _look(runner, clock, FISHING_MISS_CONFIRMATIONS)
+
+    assert any("best match 0.42" in line and "threshold 0.90" in line
+               for line in runner.logged)
+
+
+def test_fishing_says_when_it_is_working(monkeypatch):
+    """Silence is indistinguishable from "it never even tried" -- which is
+    exactly how a working setup looked when every success path was quiet."""
+    runner = _runner(monkeypatch, xp_frames=[_XP_BAR])
+
+    assert runner._ensure_rod_out(1) is True
+    assert any("rod is already out" in line for line in runner.logged)
+
+
+def test_a_missing_bar_is_said_before_the_rod_is_touched(monkeypatch):
+    runner = _runner(monkeypatch, xp_frames=[None])
+    _clock(monkeypatch)
+
+    runner._ensure_rod_out(1)
+
+    assert any("XP bar not seen" in line for line in runner.logged)
+    assert _rod_clicks(runner) == 0
+
+
+def test_the_bar_is_only_looked_for_in_the_bottom_right(monkeypatch):
+    """Searched over the whole window at a lowered sensitivity, the rank label
+    matched something elsewhere and reported "rod is already out" with the rod
+    away -- so it was never taken out. Reported live."""
+    runner = _runner(monkeypatch, xp_frames=[None, None, None, _XP_BAR])
+    clock = _clock(monkeypatch)
+
+    assert _look(runner, clock, FISHING_MISS_CONFIRMATIONS) is True
+    assert runner.xp_regions == [FISHING_XP_REGION] * (FISHING_MISS_CONFIRMATIONS + 1), (
+        "every look, and the check after the click")
+
+
+def test_a_hit_says_how_good_it_was_and_where(monkeypatch):
+    runner = _runner(monkeypatch, xp_frames=[_XP_BAR])
+
+    runner._ensure_rod_out(1)
+
+    assert any("rod is already out" in line and "score 0.97 at (1044, 721)" in line
+               for line in runner.logged)
+
+
+def test_the_failure_score_is_measured_where_the_bar_is_looked_for(monkeypatch):
+    runner = _runner(monkeypatch, xp_frames=[None] * 4)
+    clock = _clock(monkeypatch)
+    measured = []
+    runner._best_match_score = lambda hwnd, name, region=None: measured.append(region) or 0.42
+
+    _look(runner, clock, FISHING_MISS_CONFIRMATIONS)
+
+    assert measured == [FISHING_XP_REGION]
+
+
+def test_the_rod_watch_starts_fresh_every_match_and_every_run():
+    """MacroRunner is a module-level singleton -- state left over from a
+    previous match or run once kept fishing off until the app restarted."""
+    import inspect
+
+    assert "_reset_fishing_for_match" in inspect.getsource(MacroRunner._play_one_match)
+    assert "_reset_fishing_for_match" in inspect.getsource(MacroRunner._run)
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +371,22 @@ def test_the_cast_goes_through_reference_space():
     assert "ref_to_screen" in source
 
 
+def test_the_first_cast_is_announced_and_the_rest_are_not(monkeypatch):
+    """One line per cast would be ~30 a round; none at all leaves no evidence
+    the feature ran."""
+    runner = _runner(monkeypatch)
+    runner._last_fishing_cast_at = 0.0
+
+    runner._tick_fishing(1, (500, 400), 6.0)
+    first = len(runner.logged)
+    assert first == 1 and "casting at (500, 400)" in runner.logged[0]
+
+    runner._last_fishing_cast_at -= 10.0     # next cast is due
+    runner._tick_fishing(1, (500, 400), 6.0)
+
+    assert len(runner.logged) == first, "only the first cast of a match talks"
+
+
 # ---------------------------------------------------------------------------
 # Not getting in the way
 # ---------------------------------------------------------------------------
@@ -220,33 +425,6 @@ def test_the_ui_default_interval_matches_the_backend():
     assert float(match.group(1)) == FISHING_CLICK_INTERVAL
 
 
-def test_the_rod_button_is_clicked_at_most_once_per_match(monkeypatch):
-    """The button TOGGLES. A second click on a rod that did come out puts it
-    away again, and nothing on screen can tell those two states apart -- so
-    one attempt is all there is, whatever comes of it."""
-    runner = _runner(monkeypatch, xp_frames=[None, None, None, None, None, None])
-
-    for _ in range(3):
-        runner._ensure_rod_out(1)
-
-    rod_clicks = [e for e in runner.events if e == ("image", FISHING_ROD_IMAGE)]
-    assert len(rod_clicks) == 1
-
-
-def test_a_missing_crop_is_logged_once_not_every_tick(monkeypatch):
-    """This runs on every poll of every fishing round -- a log line per tick
-    would bury the run."""
-    runner = _runner(monkeypatch)
-    monkeypatch.setattr(
-        runner_module.vision, "find_image",
-        lambda *a, **k: (_ for _ in ()).throw(runner_module.vision.TemplateNotFound("no crop")))
-
-    for _ in range(5):
-        runner._ensure_rod_out(1)
-
-    assert len(runner.logged) == 1
-
-
 def test_the_rod_is_checked_inside_the_match_not_before_it():
     """The XP bar is in-game HUD and is not up before the round runs. Checking
     too early reported "rod is away" while it was out, and the click that
@@ -265,79 +443,3 @@ def test_the_rod_is_only_reached_for_when_a_cast_would_follow():
     source = inspect.getsource(MacroRunner._wait_for_match_result)
     guard = source.index("if fishing_point and not clicked_something and not block_acted:")
     assert source.index("_ensure_rod_out") > guard
-
-
-def test_a_failed_attempt_stops_fishing_for_the_whole_run(monkeypatch):
-    """One click per MATCH is not enough. The button toggles, so match 1 puts
-    the rod away, match 2 takes it out, match 3 puts it away again -- an
-    alternating flip that is worse than not fishing. Reported live."""
-    runner = _runner(monkeypatch, xp_frames=[None, None])
-
-    assert runner._ensure_rod_out(1) is False
-    assert runner._fishing_gave_up is True
-
-    # A later match resets the per-match flag; the run-scoped one must not be.
-    runner._fishing_rod_attempted = False
-    runner.events.clear()
-    monkeypatch.setattr(runner_module.vision, "wait_for_image", lambda *a, **k: None)
-
-    assert runner._ensure_rod_out(1) is False
-    assert not any(e == ("image", FISHING_ROD_IMAGE) for e in runner.events), (
-        "the rod button must not be touched again after giving up")
-
-
-def test_the_failure_says_how_close_the_crop_got(monkeypatch):
-    """\"Not found\" is ambiguous: 0.88 against a 0.90 threshold needs the
-    sensitivity lowered, 0.30 is the wrong picture entirely."""
-    runner = _runner(monkeypatch, xp_frames=[None, None])
-
-    runner._ensure_rod_out(1)
-
-    assert any("best match 0.42" in line and "threshold 0.90" in line
-               for line in runner.logged)
-
-
-def test_the_bar_is_waited_for_before_deciding_the_rod_is_away():
-    """A single look can land on a frame where the HUD has not drawn yet, and
-    the cost of a wrong answer is the rod being put away."""
-    import inspect
-
-    source = inspect.getsource(MacroRunner._ensure_rod_out)
-    check = source.index("FISHING_XP_IMAGE")
-    assert "wait_for_image" in source[:check + 200]
-    assert "find_image(" not in source, "a one-shot look is what caused the live failure"
-
-
-def test_fishing_says_when_it_is_working(monkeypatch):
-    """Silence is indistinguishable from "it never even tried" -- which is
-    exactly how a working setup looked when every success path was quiet."""
-    runner = _runner(monkeypatch, xp_frames=[{"score": 0.97}])
-
-    assert runner._ensure_rod_out(1) is True
-    assert any("rod is already out" in line for line in runner.logged)
-
-
-def test_the_first_cast_is_announced_and_the_rest_are_not(monkeypatch):
-    """One line per cast would be ~30 a round; none at all leaves no evidence
-    the feature ran."""
-    runner = _runner(monkeypatch)
-    runner._last_fishing_cast_at = 0.0
-
-    runner._tick_fishing(1, (500, 400), 6.0)
-    first = len(runner.logged)
-    assert first == 1 and "casting at (500, 400)" in runner.logged[0]
-
-    runner._last_fishing_cast_at -= 10.0     # next cast is due
-    runner._tick_fishing(1, (500, 400), 6.0)
-
-    assert len(runner.logged) == first, "only the first cast of a match talks"
-
-
-def test_giving_up_is_cleared_when_a_new_run_starts():
-    """MacroRunner is a module-level singleton, so a run-scoped flag that is
-    only set in __init__ survives until the whole app restarts -- which is how
-    one failed rod attempt silently disabled fishing for good."""
-    import inspect
-
-    source = inspect.getsource(MacroRunner._run)
-    assert "_fishing_gave_up = False" in source

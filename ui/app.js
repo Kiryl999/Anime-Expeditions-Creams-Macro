@@ -2789,8 +2789,10 @@ function taskSummary(t) {
   const meta = [
     `×${t.repeat}`,
     diff,
-    ((t.mode === 'story' && t.stage === 'Infinite') || (t.mode === 'event' && t.stage === 'infinite'))
-      ? `Stop after wave ${t.infinite_wave_limit || DEFAULT_INFINITE_WAVE_LIMIT}` : '',
+    (t.mode === 'story' && t.stage === 'Infinite')
+      ? `Stop after wave ${t.infinite_wave_limit || DEFAULT_INFINITE_WAVE_LIMIT}`
+      : (t.mode === 'event' && t.stage === 'infinite')
+        ? `Restart after wave ${t.infinite_wave_limit || DEFAULT_INFINITE_WAVE_LIMIT}` : '',
     t.tower_mode === 'traitless' ? 'Traitless' : '',
     (t.mode === 'tournament' || t.mode === 'tower') ? '' : (t.play_mode === 'matchmaking' ? 'Matchmaking' : 'Solo'),
     t.macro ? `▸ ${t.macro}` : '',
@@ -2902,10 +2904,14 @@ function renderTaskBuilder() {
   }
 
   if ((t.mode === 'story' && t.stage === 'Infinite') || (t.mode === 'event' && t.stage === 'infinite')) {
-    fields.push(field('Stop After Wave', `<input type="number" class="block-input" min="1"
+    // Tidal Siege (Event > Infinite) restarts in place at the limit; Story's
+    // Infinite still leaves.
+    const restarts = t.mode === 'event';
+    fields.push(field(restarts ? 'Restart After Wave' : 'Stop After Wave', `<input type="number" class="block-input" min="1"
       value="${Math.max(1, parseInt(t.infinite_wave_limit, 10) || DEFAULT_INFINITE_WAVE_LIMIT)}"
       oninput="setTaskProp('${t.id}', 'infinite_wave_limit', Math.max(1, parseInt(this.value, 10) || 1))">`,
-      'The macro lets this wave finish, then leaves when the next wave begins'));
+      restarts ? 'The macro lets this wave finish, then restarts the game when the next wave begins'
+               : 'The macro lets this wave finish, then leaves when the next wave begins'));
   }
 
   if (t.mode === 'expedition') {
@@ -2965,8 +2971,10 @@ function renderTaskBuilder() {
 
   const extractHint = t.mode === 'expedition'
     ? `<div class="wh-hint">"Extract After" is how many extract prompts to skip before actually taking one -- 0 extracts at the first node, higher goes deeper (and takes longer) per run.</div>` : '';
-  const infiniteHint = ((t.mode === 'story' && t.stage === 'Infinite') || (t.mode === 'event' && t.stage === 'infinite'))
-    ? `<div class="wh-hint"><b>Stop After Wave</b> completes the wave you enter, waits for the counter to advance once, then uses Leave Stage and returns to the lobby. For example, 20 leaves when wave 21 begins.</div>` : '';
+  const infiniteHint = (t.mode === 'story' && t.stage === 'Infinite')
+    ? `<div class="wh-hint"><b>Stop After Wave</b> completes the wave you enter, waits for the counter to advance once, then uses Leave Stage and returns to the lobby. For example, 20 leaves when wave 21 begins.</div>`
+    : (t.mode === 'event' && t.stage === 'infinite')
+      ? `<div class="wh-hint"><b>Restart After Wave</b> completes the wave you enter, waits for the counter to advance once, then restarts the game from Settings (Restart Game) -- your units stay placed -- and presses Start Game again. Each restart counts as one repeat. It leaves the stage instead on the task's last repeat, when Challenge, Crafting, Fuel, Shop or a Roblox refresh is due, or if the restart does not go through. For example, 20 restarts when wave 21 begins. Needs the <code>restart_btn</code> and <code>restart_confirm</code> crops (Settings &gt; General &gt; Image Manager).</div>` : '';
   el.innerHTML = `
     <div class="task-builder-grid">${fields.join('')}</div>
     ${extractHint}
@@ -6166,7 +6174,8 @@ const IMAGE_DESCRIPTIONS = {
   raid: "The Raid card on the Play menu.",
   reconnect: "Roblox's own Reconnect/Retry disconnect prompt -- triggers a rejoin.",
   repeat_stage: "The 'Repeat Stage' button on the result screen (re-queues the same stage).",
-  restart_btn: "A restart button.",
+  restart_btn: "The gold 'Restart Game' icon in Settings -- Tidal Siege restarts here at its wave limit.",
+  restart_confirm: "The red 'Restart' confirmation that follows Restart Game.",
   return: "The 'Return to Lobby' confirmation after Leave Stage.",
   "select upgrade card": "The level-up 'Select an upgrade!' reward-card popup.",
   story: "The Story card on the Play menu.",

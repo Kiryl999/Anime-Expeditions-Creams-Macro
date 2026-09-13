@@ -163,14 +163,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # stray click on those is what _clear_result_obtainment_modal exists
         # to undo. So it fires once and then stops looking.
         self._portal_offer_taken = False
-        # Auto Fishing: when the last cast went out, whether the rod was
-        # confirmed out for this match, and whether an attempt already failed
-        # (see _ensure_rod_out/_tick_fishing). The last one is RUN-scoped, not
-        # per match -- the rod button toggles.
-        self._last_fishing_cast_at = 0.0
-        self._fishing_ready = False
-        self._fishing_rod_attempted = False
-        self._fishing_gave_up = False
+        # Auto Fishing: when the last cast went out and the rod watch (see
+        # _ensure_rod_out/_tick_fishing) -- all per match.
+        self._reset_fishing_for_match()
+        # Set by _run_task around each repeat it plays: whether a Tidal Siege
+        # wave limit may restart in place instead of leaving (see
+        # _infinite_restart_wanted). Off everywhere else -- Auto Bounty plays
+        # Infinite too, and relies on the exit.
+        self._infinite_restart_ok = False
         # Proof the battle is genuinely under way (cards drop for kills), and
         # the quiet-period clock the deferred placements wait on. Anything
         # that disrupts the board -- a card, a mid-run Start Game -- restarts
@@ -728,17 +728,18 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._mouse.click(left + self._coords["screen_middle_x"], top + self._coords["screen_middle_y"])
         return True
 
-    def _best_match_score(self, hwnd, name: str):
+    def _best_match_score(self, hwnd, name: str, region: tuple = None):
         """The best score `name` reaches against the screen right now, even
         below threshold -- or None when it cannot be measured.
 
         Purely for reporting. "Not found" is ambiguous on its own: a crop that
         scores 0.88 against a 0.90 threshold needs its sensitivity lowered,
         while one that scores 0.30 is simply the wrong picture. Saying which
-        turns a guessing game into one number.
+        turns a guessing game into one number. Pass the same `region` the
+        search used, or the number describes a different search.
         """
         try:
-            gray = vision.capture_game_gray(hwnd)
+            gray = vision.capture_game_gray(hwnd, region)
             if gray is None:
                 return None
             best = None
@@ -750,78 +751,140 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         except Exception:
             return None
 
+    def _fishing_xp_evidence(self, hwnd, match: dict) -> str:
+        """Score and position of a fishing_xp hit, plus its crop when Debug
+        Match Screenshots is on. A wrong "the rod is out" is otherwise
+        invisible: the rod stays away and nothing says what was matched."""
+        text = f'score {match["score"]:.2f} at ({match["cx"]}, {match["cy"]})'
+        debug_path = self._debug_save(hwnd, FISHING_XP_IMAGE, match)
+        return text + (f", debug: {debug_path}" if debug_path else "")
+
+    def _reset_fishing_for_match(self) -> None:
+        """Fresh Auto Fishing state for a new match (and a new run): cast on
+        the first tick, and watch the rod from scratch (see _ensure_rod_out)."""
+        self._last_fishing_cast_at = 0.0
+        self._fishing_ready = False          # rod seen out -- casting goes ahead
+        self._fishing_next_look_at = 0.0     # when the bar is looked at next
+        self._fishing_misses = 0             # looks in a row without the bar
+        self._fishing_failed_attempts = 0    # rod clicks this match that did not bring it up
+        self._fishing_retry_at = 0.0         # no rod click before this
+        self._fishing_paused = False         # for the rest of this match
+
     def _ensure_rod_out(self, hwnd, stop_event: threading.Event = None) -> bool:
-        """Get the fishing rod out, if it is not already.
+        """Whether the rod is out and casting may go ahead -- taking it out
+        once it has been confirmed away. Asked on every fishing tick of the
+        match loop; the looks themselves are paced here.
 
-        Called from inside the match loop, NOT before the round starts. The XP
-        bar is part of the in-game HUD, and before the round is running that
-        HUD is not up yet -- so an earlier check reported "rod is away" while
-        the rod was plainly out, and the click below then put it AWAY.
-        Reported live, and the worst possible failure for this feature: the
-        rod button toggles, so a wrong answer here does not merely fail to
-        fish, it undoes the state it was trying to reach.
+        Called from inside the match loop, NOT before the round starts: the XP
+        bar is in-game HUD and is not up before then, so an early check read
+        "rod is away" while it was out.
 
-        The XP bar is the only reliable "rod is out" signal, so it is checked
-        first and the rod button clicked at most ONCE per match. Everything
-        after that first attempt is left alone: a second click on a rod that
-        did come out would put it away again, and no amount of retrying can
-        tell those two states apart.
+        The rod button TOGGLES, so a wrong "the rod is away" puts it away.
+        That used to be answered with "click at most once per match, and
+        switch fishing off for the whole run if it fails" -- and one failed
+        click, on a rank label that reads worse while the map is dark, cost a
+        run 9.5 hours of fishing without another word in the log. Now:
 
-        Never fatal. A missing crop, a rod button that cannot be found, an XP
-        bar that never appears -- all of them log once and leave the round to
-        run without fishing, because fishing must not be able to stop a run.
+        * the bar is looked at every FISHING_CHECK_INTERVAL for the whole
+          round, so a rod the game put away is noticed;
+        * the rod is only clicked once the bar has been missing on
+          FISHING_MISS_CONFIRMATIONS looks in a row, FISHING_MISS_RECHECK
+          apart -- one bad frame never touches the button;
+        * a click that does not bring the bar up is retried after
+          FISHING_RETRY_DELAY. If that click put away a rod that WAS out, the
+          retry takes it out again. After FISHING_MAX_ATTEMPTS_PER_MATCH
+          failures fishing pauses until the next match -- never for the run.
+
+        Each look is a single one, not a wait: the confirming looks stand in
+        for waiting now, and a wait here stalled the whole match loop for
+        seconds on every tick the bar was missing.
+
+        Never fatal: fishing must not be able to stop a run.
         """
-        # Waited for, not glanced at. A single look can land on a frame where
-        # the HUD has not drawn yet, and the cost of a wrong "the rod is away"
-        # is the rod being put away.
+        if self._fishing_paused:
+            return False
+        now = time.time()
+        if now < self._fishing_next_look_at:
+            return self._fishing_ready
         try:
-            if vision.wait_for_image(hwnd, FISHING_XP_IMAGE, timeout=FISHING_XP_SETTLE_TIMEOUT,
-                                      stop_event=stop_event) is not None:
-                self._log("[Macro] Auto Fishing: rod is already out -- casting.")
-                return True
+            bar = vision.find_image(hwnd, FISHING_XP_IMAGE, region=FISHING_XP_REGION)
         except vision.TemplateNotFound as exc:
-            if not self._fishing_rod_attempted:
-                self._fishing_rod_attempted = True
-                self._log(f"[Macro] Auto Fishing: {exc}")
+            # No crop, nothing to decide on -- once per match, then quiet.
+            self._log(f"[Macro] Auto Fishing: {exc}")
+            self._fishing_paused = True
             return False
 
-        # One attempt per match, whatever comes of it -- and none at all once
-        # a whole attempt has already failed this run (see _fishing_gave_up).
-        if self._fishing_rod_attempted or self._fishing_gave_up:
-            return False
-        self._fishing_rod_attempted = True
+        if bar is not None:
+            if not self._fishing_ready:
+                self._log(f"[Macro] Auto Fishing: rod is already out "
+                          f"({self._fishing_xp_evidence(hwnd, bar)}) -- casting.")
+            self._fishing_ready = True
+            self._fishing_misses = 0
+            self._fishing_next_look_at = now + FISHING_CHECK_INTERVAL
+            return True
 
+        self._fishing_misses += 1
+        if self._fishing_misses < FISHING_MISS_CONFIRMATIONS:
+            if self._fishing_misses == 1:
+                self._log(f"[Macro] Auto Fishing: XP bar not seen -- looking "
+                          f"{FISHING_MISS_CONFIRMATIONS - 1} more times before touching the rod.")
+            self._fishing_next_look_at = now + FISHING_MISS_RECHECK
+            # A blip keeps fishing going; the rod is not touched on one look.
+            return self._fishing_ready
+
+        self._fishing_misses = 0
+        self._fishing_ready = False
+        if now < self._fishing_retry_at:
+            self._fishing_next_look_at = self._fishing_retry_at
+            return False
+        return self._take_rod_out(hwnd, stop_event)
+
+    def _take_rod_out(self, hwnd, stop_event: threading.Event = None) -> bool:
+        """Click the rod button and check the XP bar came up (see
+        _ensure_rod_out for when this is allowed to happen)."""
+        self._log("[Macro] Auto Fishing: XP bar gone on "
+                  f"{FISHING_MISS_CONFIRMATIONS} looks in a row -- taking the rod out.")
         self._set_status(action="Taking the fishing rod out...")
         if self._click_found_image(hwnd, FISHING_ROD_IMAGE, EVENT_SCREEN_TIMEOUT, stop_event) is None:
-            self._log("[Macro] Auto Fishing: couldn't find the rod button -- fishing this round.")
-            return False
+            return self._fishing_attempt_failed("couldn't find the rod button.")
 
         try:
-            back = vision.wait_for_image(hwnd, FISHING_XP_IMAGE,
+            back = vision.wait_for_image(hwnd, FISHING_XP_IMAGE, region=FISHING_XP_REGION,
                                           timeout=FISHING_ROD_VERIFY_TIMEOUT, stop_event=stop_event)
         except vision.TemplateNotFound:
             back = None
         if back is None:
-            # Stop for the whole RUN, not just this match. One click per match
-            # sounds safe until you notice the button TOGGLES: match 1 puts the
-            # rod away, match 2 takes it out, match 3 puts it away again. That
-            # alternating flip is worse than not fishing at all, and it is what
-            # actually happened. Giving up entirely is the only safe answer
-            # while the bar cannot be recognised.
-            self._fishing_gave_up = True
-            best = self._best_match_score(hwnd, FISHING_XP_IMAGE)
+            best = self._best_match_score(hwnd, FISHING_XP_IMAGE, region=FISHING_XP_REGION)
             score = f"best match {best:.2f} vs threshold "
             score += f"{vision.threshold_for(FISHING_XP_IMAGE):.2f}" if best is not None else "n/a"
             shot = self._save_debug_screenshot_unconditional(hwnd, "fishing_xp_not_found")
-            self._log(f"[Macro] Auto Fishing: clicked the rod button but the XP bar never showed "
-                      f"({score}). If the rod was ALREADY out, that click just put it away. "
-                      f'Auto Fishing is now OFF for the rest of this run so the button is not '
-                      f'toggled every round -- fix the "{FISHING_XP_IMAGE}" crop (or lower its '
-                      f"sensitivity in Image Manager) and start the run again."
-                      + (f" Debug: {shot}" if shot else ""))
-            return False
-        self._log("[Macro] Auto Fishing: rod is out.")
+            return self._fishing_attempt_failed(
+                f"clicked the rod button but the XP bar never showed ({score}). If the rod was "
+                f"ALREADY out, that click just put it away -- the next try takes it out again. "
+                f'If this keeps happening, add a "{FISHING_XP_IMAGE}" crop taken in this situation '
+                f"(Image Manager)." + (f" Debug: {shot}" if shot else ""))
+
+        self._fishing_ready = True
+        self._fishing_failed_attempts = 0
+        self._fishing_next_look_at = time.time() + FISHING_CHECK_INTERVAL
+        self._log(f"[Macro] Auto Fishing: rod is out ({self._fishing_xp_evidence(hwnd, back)}).")
         return True
+
+    def _fishing_attempt_failed(self, what: str) -> bool:
+        """Book a rod click that did not end with the bar up: retry later, or
+        pause until the next match once FISHING_MAX_ATTEMPTS_PER_MATCH is hit.
+        Always False -- no cast follows a failed attempt."""
+        self._fishing_failed_attempts += 1
+        if self._fishing_failed_attempts >= FISHING_MAX_ATTEMPTS_PER_MATCH:
+            self._fishing_paused = True
+            self._log(f"[Macro] Auto Fishing: {what} Pausing fishing until the next match "
+                      f"({self._fishing_failed_attempts} tries this match).")
+        else:
+            self._fishing_retry_at = time.time() + FISHING_RETRY_DELAY
+            self._fishing_next_look_at = self._fishing_retry_at
+            self._log(f"[Macro] Auto Fishing: {what} Trying again in "
+                      f"{FISHING_RETRY_DELAY / 60:.0f} min.")
+        return False
 
     def _tick_fishing(self, hwnd, point, interval: float) -> None:
         """Cast again if `interval` has passed since the last cast.
@@ -1024,10 +1087,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         webhook = webhook or {}
         self._active_task_progress = None
         self._current_task = None
-        # Auto Fishing's "gave up" flag is RUN-scoped, and this object is a
-        # module-level singleton -- without clearing it here, one failed rod
-        # attempt disabled fishing until the whole app was restarted.
-        self._fishing_gave_up = False
+        # This object is a module-level singleton, so nothing Auto Fishing
+        # decided in a previous run may carry into this one -- a leftover
+        # "gave up" once disabled fishing until the whole app was restarted.
+        self._reset_fishing_for_match()
 
         hwnd = hwnd_getter()
         if not hwnd or not wm.is_window(hwnd):
@@ -1337,13 +1400,26 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # just fully re-run, confirmed from a real report: Walk Path
             # silently skipped resuming a task after a Challenge interleave).
             fresh_entry = True
+            # True after a Tidal Siege restart: still in the stage with every
+            # unit placed, so the next repeat only presses Start Game.
+            resume_after_restart = False
             for repeat_index in range(1, repeat_total + 1):
                 self._active_task_progress["next_repeat"] = repeat_index
                 self._set_status(current_repeat=f"{repeat_index} / {repeat_total}")
                 battle_started = time.time()
-                result = self._play_one_match(hwnd, stop_event, task, default_walk_paths,
-                                                first_repeat=fresh_entry, webhook=webhook)
+                # Tidal Siege may restart in place at its wave limit -- never on
+                # the last repeat, which has to end in the lobby like any task.
+                self._infinite_restart_ok = (
+                    task.get("mode") == "event" and task.get("stage") == "infinite"
+                    and repeat_index < repeat_total)
+                try:
+                    result = self._play_one_match(hwnd, stop_event, task, default_walk_paths,
+                                                    first_repeat=fresh_entry, webhook=webhook,
+                                                    skip_prestart=resume_after_restart)
+                finally:
+                    self._infinite_restart_ok = False
                 fresh_entry = False
+                resume_after_restart = False
                 if result is None:
                     if stop_event.is_set():
                         return False
@@ -1355,6 +1431,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 # to the lobby themselves -- no Victory/Defeat screen follows,
                 # and the next repeat must re-enter from the lobby.
                 left_live_match = result in ("wave_limit", "left")
+                # A Tidal Siege restart stayed IN the stage: no result screen,
+                # no lobby -- and nothing that needs the lobby was due, or it
+                # would have left instead (see _infinite_restart_wanted).
+                restarted = result == "restarted"
 
                 # Consecutive-loss fail-safe: a genuine unbroken loss streak
                 # on THIS map (not just losses somewhere in the run) usually
@@ -1418,10 +1498,15 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                     and not fuel_wants_in
                     and not auto_shop_wants_in
                 )
+                if restarted:
+                    # Checked before restarting -- nothing wanted the lobby.
+                    challenge_wants_in = crafting_wants_in = fuel_wants_in = False
+                    auto_shop_wants_in = memory_refresh_wants_in = False
                 # The bounded-Infinite path and the Leave-at-Minute block
-                # (left_live_match) already left the live match, so there is no
-                # Victory/Defeat screen to process here.
-                if not left_live_match and not self._handle_match_result(
+                # (left_live_match) already left the live match, and a restart
+                # stayed in it -- either way there is no Victory/Defeat screen
+                # to process here.
+                if not left_live_match and not restarted and not self._handle_match_result(
                         hwnd, stop_event, task, result, duration, webhook,
                         repeat=(not is_last_repeat) and not challenge_wants_in
                         and not crafting_wants_in and not fuel_wants_in
@@ -1602,6 +1687,23 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                             task_failed = True
                             break
                         fresh_entry = True
+                    continue
+
+                if restarted:
+                    # The wave limit reached is this mode's win. A restart has
+                    # no Victory screen to be counted from, so without this the
+                    # Scoreboard sat still while the run was working. Only the
+                    # Scoreboard/history -- no result webhook per restart, and
+                    # Auto Crafting's win count is untouched (it is kept by
+                    # _handle_match_result, which a restart never reaches).
+                    try:
+                        self._record_result("win", map_name, duration)
+                        self._log(f"[Macro] Wave limit reached in {duration} -- counted as a win.")
+                    except Exception as exc:
+                        self._log(f"[Macro] Couldn't count the restart on the Scoreboard: {exc}")
+                    # Still in the stage with every unit placed: the next
+                    # repeat goes straight to Start Game.
+                    resume_after_restart = True
                     continue
 
                 if not is_last_repeat:
@@ -1885,26 +1987,33 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         return not self._checkpoint(stop_event)
 
     def _play_one_match(self, hwnd, stop_event: threading.Event, task: dict, default_walk_paths: dict,
-                          first_repeat: bool = True, webhook: dict = None):
+                          first_repeat: bool = True, webhook: dict = None, skip_prestart: bool = False):
         """Assumes teleport-in already happened -- the initial one from
         _run_task_setup, or a repeat's re-teleport after Repeat Stage (see
         _handle_match_result). Start Game settings check, Pre Start, the
         actual Start Game click, then watches for Victory/Defeat. Runs once
         per repeat. first_repeat gates the default walk and any "Once"
         Pre Start block so they only fire on the task's first entry into
-        this stage, not on every repeat (see _run_prestart). Returns
-        "win"/"loss", or None on failure/stop."""
+        this stage, not on every repeat (see _run_prestart). skip_prestart
+        is for the repeat after a Tidal Siege restart, which kept every unit
+        placed (see _restart_infinite_at_wave_limit). Returns "win"/"loss",
+        an Infinite exit ("wave_limit"/"restarted"/"left"), or None on
+        failure/stop."""
         if not self._start_game_or_reset_via_settings(hwnd, stop_event, task.get("play_mode")):
             return None
         if self._checkpoint(stop_event):
             return None
 
-        if not self._run_prestart(hwnd, stop_event, task, default_walk_paths, first_repeat):
-            return None
-        if self._checkpoint(stop_event):
-            return None
-
-        self._log("[Macro] Pre Start finished -- starting the round.")
+        if skip_prestart:
+            # Restart Game reset the waves but left every unit where it
+            # stood -- there is nothing to place.
+            self._log("[Macro] Restarted in place -- units are still placed, starting the round.")
+        else:
+            if not self._run_prestart(hwnd, stop_event, task, default_walk_paths, first_repeat):
+                return None
+            if self._checkpoint(stop_event):
+                return None
+            self._log("[Macro] Pre Start finished -- starting the round.")
         self._set_status(action="Starting the round...")
         if self._checkpoint(stop_event):
             return None
@@ -1969,9 +2078,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._battle_leave_requested = False
         self._is_expedition_match = task.get("mode") == "expedition"
         self._portal_offer_taken = False   # fresh match, fresh offer
-        self._last_fishing_cast_at = 0.0   # cast on the first tick
-        self._fishing_ready = False
-        self._fishing_rod_attempted = False
+        self._reset_fishing_for_match()    # cast on the first tick, watch the rod afresh
         self._wave_region = EXPEDITION_WAVE_REGION if self._is_expedition_match else WAVE_REGION
         self._last_reward_card_at = 0.0
         self._last_board_disruption_at = 0.0
@@ -2103,6 +2210,110 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._click_return_to_lobby_if_found(hwnd, stop_event)
         return not self._checkpoint(stop_event)
 
+    def _infinite_restart_wanted(self) -> bool:
+        """Whether a Tidal Siege wave limit should restart in place.
+
+        Only while _run_task allows it for the repeat being played (see
+        _infinite_restart_ok), and only when nothing is waiting for the
+        lobby: Challenge, Auto Crafting, Fuel, Shop and the memory refresh
+        all run between repeats FROM the lobby, so a run that only ever
+        restarted would starve them. Those take the old Leave Stage exit, and
+        the task re-enters afterwards exactly as it always has.
+        """
+        if not self._infinite_restart_ok:
+            return False
+        return not (self._challenge_has_ready_stage()
+                    or self._crafting_wants_in()
+                    or self._fuel_wants_in()
+                    or self._auto_shop_wants_in()
+                    or self._memory_refresh_due())
+
+    def _restart_infinite_at_wave_limit(self, hwnd, stop_event: threading.Event, limit: int) -> bool:
+        """Restart a live Tidal Siege run in place after ``limit`` completed.
+
+        Settings (gear) -> Restart Game -> the red "Restart" confirmation.
+        The waves reset but every unit stays placed, so the next repeat only
+        has to press Start Game (see _play_one_match's skip_prestart) -- no
+        Leave Stage, no lobby, no re-entry.
+
+        Restart Game is looked for as soon as Settings opens; when it is not
+        in view it is typed into the Settings search, the way the old Auto
+        Vote Start workaround reached it. The confirmation is clicked when it
+        shows. What decides success is Start Game coming back -- nothing
+        before that proves the waves reset, and False makes the caller leave
+        the stage the old way instead.
+        """
+        self._release_quick_place_shift()
+        self._set_status(action=f"Wave {limit} complete -- restarting the game...")
+        self._log(f"[Macro] Infinite wave {limit} completed and wave {limit + 1} began -- "
+                  "restarting the game from Settings.")
+        if not self._click_found_image(hwnd, "nav_settings", NAV_CLICK_TIMEOUT, stop_event):
+            return False
+        # Settings slides in -- see _open_settings_search.
+        self._interruptible_sleep(SETTLE_DELAY, stop_event)
+        if self._checkpoint(stop_event):
+            return False
+
+        try:
+            restart = vision.wait_for_image(hwnd, RESTART_GAME_IMAGE,
+                                            timeout=RESTART_GAME_LOOK_TIMEOUT, stop_event=stop_event)
+            if restart is None and not stop_event.is_set():
+                self._log("[Macro] Restart Game isn't in view -- searching Settings for it.")
+                if self._click_found_image(hwnd, "nav_search", NAV_CLICK_TIMEOUT, stop_event):
+                    self._keyboard.type_text("restart game")
+                    self._interruptible_sleep(SETTLE_DELAY, stop_event)
+                    restart = vision.wait_for_image(hwnd, RESTART_GAME_IMAGE,
+                                                    timeout=NAV_CLICK_TIMEOUT, stop_event=stop_event)
+        except vision.TemplateNotFound as exc:
+            self._log(f"[Macro] {exc}")
+            restart = None
+        if restart is None:
+            if not stop_event.is_set():
+                self._log(f'[Macro] Couldn\'t find Restart Game in Settings ("{RESTART_GAME_IMAGE}").')
+                self._close_settings_if_open(hwnd, stop_event)
+            return False
+        self._log(f'[Macro] Found Restart Game (score {restart["score"]:.2f}) -- clicking it.')
+        vision.click_match(self._mouse, hwnd, restart)
+        if self._checkpoint(stop_event):
+            return False
+
+        try:
+            confirm = vision.wait_for_image(hwnd, RESTART_CONFIRM_IMAGE,
+                                            timeout=RESTART_CONFIRM_TIMEOUT, stop_event=stop_event)
+        except vision.TemplateNotFound:
+            confirm = None
+        if confirm is not None:
+            self._log(f'[Macro] Confirming the restart (score {confirm["score"]:.2f}).')
+            vision.click_match(self._mouse, hwnd, confirm)
+        elif not stop_event.is_set():
+            # The first live run stopped right here: Restart Game was clicked,
+            # the dialog came up, and the shipped crop -- older than the
+            # game's current dialog -- never matched it. Leave the evidence a
+            # fix needs: how close the crop got, and what was on screen.
+            best = self._best_match_score(hwnd, RESTART_CONFIRM_IMAGE)
+            score = (f"best match {best:.2f} vs threshold {vision.threshold_for(RESTART_CONFIRM_IMAGE):.2f}"
+                     if best is not None else "no match score")
+            shot = self._save_debug_screenshot_unconditional(hwnd, "infinite_restart_no_confirm")
+            self._log(f'[Macro] The "Restart" confirmation didn\'t match "{RESTART_CONFIRM_IMAGE}" '
+                      f'within {RESTART_CONFIRM_TIMEOUT:.0f}s ({score}). If it is on screen, add a crop '
+                      f'of its Restart button under that name (Settings > General > Image Manager).'
+                      + (f" Debug: {shot}" if shot else ""))
+        if self._checkpoint(stop_event):
+            return False
+        self._close_settings_if_open(hwnd, stop_event)
+        if self._checkpoint(stop_event):
+            return False
+
+        _name, start = self._find_start_game_button(hwnd, stop_event, RESTART_START_GAME_TIMEOUT)
+        if start is None:
+            if not stop_event.is_set():
+                self._log("[Macro] Restart Game was clicked, but Start Game never came back -- "
+                          "the waves may not have reset.")
+                self._save_debug_screenshot_unconditional(hwnd, "infinite_restart_no_start_game")
+            return False
+        self._log("[Macro] Game restarted -- waves reset, units kept.")
+        return True
+
     def _check_infinite_wave_limit(self, hwnd, stop_event: threading.Event, limit: int, state: dict):
         """Poll/confirm the unlimited-wave HUD and leave at ``limit + 1``.
 
@@ -2167,6 +2378,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 "confirming on the next read."
             )
             return None
+        if self._infinite_restart_wanted():
+            if self._restart_infinite_at_wave_limit(hwnd, stop_event, limit):
+                return "restarted"
+            if self._checkpoint(stop_event):
+                return "failed"
+            self._log("[Macro] Restart Game didn't go through -- leaving the stage instead.")
         return (
             "wave_limit"
             if self._leave_infinite_at_wave_limit(hwnd, stop_event, limit)
@@ -2214,8 +2431,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if infinite_wave_limit is not None:
                 limit_result = self._check_infinite_wave_limit(
                     hwnd, stop_event, infinite_wave_limit, infinite_wave_state)
-                if limit_result == "wave_limit":
-                    return "wave_limit"
+                if limit_result in ("wave_limit", "restarted"):
+                    return limit_result
                 if limit_result == "failed":
                     return None
 
@@ -2323,9 +2540,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 # is in-game HUD, absent until the round is actually running.
                 # Checking it too early reported "rod is away" while it was
                 # out, and the rod button toggles -- so that click put it away.
-                if not self._fishing_ready:
-                    self._fishing_ready = self._ensure_rod_out(hwnd, stop_event)
-                if self._fishing_ready:
+                # Asked every tick for the whole round; _ensure_rod_out paces
+                # its own looks.
+                if self._ensure_rod_out(hwnd, stop_event):
                     self._tick_fishing(hwnd, fishing_point, fishing_interval)
 
             if mode == "expedition":
