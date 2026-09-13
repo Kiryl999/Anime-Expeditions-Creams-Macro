@@ -2,6 +2,16 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.11] - 2026-09-13
+
+### New
+- **Tidal Siege restarts in place instead of leaving**: at its wave limit (now "Restart After Wave" on the task), an Event > Infinite task restarts the game from Settings -- Restart Game, then the red Restart confirmation -- and presses Start Game again. Your units stay placed, so there is no leaving, no lobby and no Pre Start in between. Each restart counts as one repeat. It still leaves the stage the old way on the task's last repeat, when Challenge, Crafting, Fuel, Shop or a Roblox refresh is due, or if the restart does not go through (Start Game has to come back for it to count). Story's Infinite keeps leaving as before. Uses the `restart_btn` crop and the new `restart_confirm` crop; if the confirmation is not recognised, the log says how close the crop got and saves a screenshot.
+- **Restarts show up on the Scoreboard**: each Tidal Siege restart is counted as a win (session, all-time and run history), so you can see the run is working. Auto Crafting's win count and the result webhook are not affected.
+
+### Fixed
+- **Auto Fishing no longer switches itself off for the whole run**: one rod click that did not bring the XP bar up used to disable fishing until the run was started again -- a 9.5-hour run lost all its fishing to it, without another log line. The rod is now watched for the whole round (a look every 30 seconds), only clicked once the bar has been missing on three looks in a row, retried after 3 minutes when a click does not bring it up, and after two failures paused until the next match only.
+- **"Rod is already out" while the rod was away**: the XP bar was searched for across the whole window, so something label-like elsewhere could count. It is now only looked for in the bottom-right corner, and every hit is logged with its score and position.
+
 ## [0.21.10] - 2026-09-12
 
 ### Improved
