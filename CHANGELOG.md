@@ -2,6 +2,12 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.12] - 2026-09-22
+
+### Fixed
+- **Portal rounds no longer sit on the Start button**: after picking a portal from your inventory, the round very often never started -- the Start button got pressed a moment too early, or the press did not register and nothing said so. Portals are the only mode that goes straight from "Activate Portal" to the stage screen, with no Select Stage step in between, and that step was what made every other mode wait for the screen to finish opening. The macro now waits for it, makes sure the Start button has stopped moving before clicking it, and checks that both the "Activate Portal" click and the Start click actually registered -- clicking again straight away instead of waiting 20 seconds to find out. Most noticeable over Remote Desktop.
+- **The window comes back after a Remote Desktop drop**: the macro's own window could minimize by itself on Remote Desktop -- a brief internet drop is enough, because Windows minimizes a session's windows when the connection goes -- and from then on nothing was clicked at all, since Roblox runs docked inside that window. It could not be restored from the taskbar either. The macro now puts its window back on its own whenever this happens during a run, and says so in the log. There is also a new **Restore Window** hotkey (F8 by default, under Settings > Keybinds) for when no run is going, or when that does not take.
+
 ## [0.21.11] - 2026-09-13
 
 ### New
