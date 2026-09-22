@@ -309,6 +309,21 @@ def hide_window(window_id: int) -> None:
     pass
 
 
+# Same reasoning for minimize state: the dock watchdog's "Windows minimized
+# our window behind our back" heal (see main's _restore_gui_if_minimized) is
+# a Remote Desktop problem on Windows, and nothing on mac minimizes the panel
+# without the user asking. Answering "not minimized" keeps that heal a no-op
+# here instead of making the caller branch on the platform.
+
+def is_minimized(window_id: int) -> bool:
+    return False
+
+
+def restore_window(window_id: int) -> bool:
+    return True
+
+
+
 def show_window(window_id: int) -> None:
     pass
 

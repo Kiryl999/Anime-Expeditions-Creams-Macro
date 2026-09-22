@@ -147,6 +147,12 @@ def _is_critical_log(message: str) -> bool:
 # spammed with more launches on top of it.
 ROBLOX_RELAUNCH_COOLDOWN = 60.0
 
+# How long between "the window got minimized, restoring it" log lines. The
+# restore itself is retried every watchdog tick -- only the LOG is throttled,
+# so a window that refuses to come back says so once a minute instead of
+# thirty times (see heal_minimized_window).
+GUI_RESTORE_LOG_COOLDOWN = 60.0
+
 HOTKEY_DEFAULTS = {
     "toggle_game": "f4", "skip_waiting": "", "macro_start": "f1", "macro_stop": "f2", "macro_pause": "f5",
     "debug_screenshot": "f3",
@@ -161,6 +167,14 @@ HOTKEY_DEFAULTS = {
     # Collapses the whole dashboard to a small always-on-top strip (and back)
     # -- for when the macro's running fine and the full UI is just clutter.
     "toggle_compact": "f7",
+    # Forces the window back from a minimize that the taskbar won't undo.
+    # This window is frameless, and a frameless window that Windows minimized
+    # on its own -- what a dropped Remote Desktop connection does to a whole
+    # session -- does not always come back from a taskbar click. The watchdog
+    # heals this by itself while a run is going (see
+    # heal_minimized_window); this is the way back when no run is going,
+    # or when that did not take.
+    "restore_window": "f8",
 }
 
 # Stage-detail panel (shown after clicking a stage row on the Select Stage
@@ -491,6 +505,17 @@ class Api:
             vision.force_window_capture()
         self.game_hwnd = None
         self.gui_hwnd = None
+        # Windows minimizes a Remote Desktop session's windows when the client
+        # disconnects -- a brief network drop is enough -- and Roblox is a
+        # CHILD of this window, so a minimized panel takes the game down with
+        # it and the run stops dead. The dock watchdog puts it back (see
+        # heal_minimized_window). _gui_minimize_wanted is how it tells
+        # that apart from the titlebar's own Minimize button, which must keep
+        # working: set by minimize_window(), cleared the moment the window is
+        # seen un-minimized again. _gui_restore_logged_at rate-limits the log
+        # so a window that refuses to restore doesn't fill it every tick.
+        self._gui_minimize_wanted = False
+        self._gui_restore_logged_at = 0.0
         # Manual multi-instance attach (Settings > Debug > "Select Roblox
         # Window") -- see _dock_watchdog and attach_roblox_window/
         # detach_roblox_window below. pinned_hwnd forces the watchdog's next
@@ -2868,7 +2893,101 @@ class Api:
         except Exception:
             pass
 
+    def heal_minimized_window(self) -> bool:
+        """Undo a minimize nobody asked for. Returns whether one was undone.
+
+        Windows minimizes a session's windows when a Remote Desktop client
+        disconnects, and on RDP a momentary network drop IS a disconnect --
+        the session survives, the windows come back minimized. That is fatal
+        here in a way it is not for an ordinary app: Roblox is reparented as
+        a CHILD of this window (see core/dock.py), so a minimized panel takes
+        the game window down with it. Captures have nothing to read and
+        SendInput clicks have nothing to land on -- and nothing else notices,
+        because the dock itself is still perfectly intact, so the watchdog's
+        dock branch never runs again and the run just sits there.
+
+        Called every dock-watchdog tick. Deliberately narrow, so it can never
+        fight the user:
+
+        * only while a run is actually going. Minimizing an idle panel is a
+          normal thing to want, and undoing that would be obnoxious.
+        * never a minimize we asked for (the titlebar button -- see
+          minimize_window). That button keeps working mid-run too; it just
+          means the run is paused in practice, which it already was.
+
+        Restores WITHOUT taking focus (wm.restore_window, not
+        activate_window) -- this fires unattended, and stealing the
+        foreground from whatever else is open would be its own bug. The
+        by-hand version (restore_window, on a hotkey) does take focus,
+        because there a person just asked for the window.
+        """
+        if sys.platform == "darwin" or not self.docker.docked:
+            return False
+        gui_hwnd = self.gui_hwnd
+        if not gui_hwnd or not wm.is_window(gui_hwnd):
+            return False
+        if not wm.is_minimized(gui_hwnd):
+            self._gui_minimize_wanted = False
+            return False
+        if self._gui_minimize_wanted or not self.runner.is_running():
+            return False
+
+        now = time.time()
+        should_log = now - self._gui_restore_logged_at >= GUI_RESTORE_LOG_COOLDOWN
+        if should_log:
+            self._gui_restore_logged_at = now
+            self.push_log("The macro window got minimized while a run was going -- restoring it. "
+                          "(Windows does this to a Remote Desktop session's windows when the "
+                          "connection drops, even briefly. Roblox is docked inside this window, "
+                          "so a minimized panel stops the run.)")
+        # pywebview's own restore() first, for consistency with the rest of
+        # the window handling, then the native call -- restore() marshals
+        # onto the GUI thread and this runs on the watchdog's.
+        try:
+            if self._window:
+                self._window.restore()
+        except Exception:
+            pass
+        time.sleep(0.2)
+        restored = wm.restore_window(gui_hwnd)
+        if not restored and should_log:
+            self.push_log("Couldn't un-minimize the macro window -- press the Restore Window hotkey "
+                          "(F8 by default) or click it in the taskbar; the run carries on from there.")
+        return restored
+
+    def restore_window(self) -> dict:
+        """Bring the window back from a minimize, by hand.
+
+        The counterpart to minimize_window, and the escape hatch for the
+        problem heal_minimized_window exists for: a frameless window that
+        Windows minimized on its own does not reliably come back from a
+        taskbar click. Bound to a global hotkey rather than a button for the
+        obvious reason -- there is no button to click when the window is not
+        on screen.
+
+        Native, not routed through the page like the other hotkeys: the whole
+        point is that this has to work when the UI is not reachable. Takes
+        focus too (unlike the watchdog's heal), because a person just asked
+        for the window.
+        """
+        self._gui_minimize_wanted = False
+        try:
+            if self._window:
+                self._window.restore()
+        except Exception:
+            pass
+        hwnd = self.gui_hwnd or WindowManager(GUI_TITLE).find()
+        if not hwnd:
+            return {"ok": False, "reason": "no_window"}
+        self.gui_hwnd = hwnd
+        wm.restore_window(hwnd)
+        wm.activate_window(hwnd)
+        return {"ok": not wm.is_minimized(hwnd)}
+
     def minimize_window(self):
+        # Flagged as ours so the watchdog's "something minimized us" heal
+        # leaves it alone -- see _gui_minimize_wanted.
+        self._gui_minimize_wanted = True
         if self._window:
             self._window.minimize()
 
@@ -4789,6 +4908,13 @@ def _launch_ui():
             except Exception:
                 pass
 
+            # A minimize nobody asked for (Remote Desktop dropping out) leaves
+            # the docked game -- and the run -- dead with no other symptom.
+            try:
+                api.heal_minimized_window()
+            except Exception as exc:
+                api.push_log(f"Window restore check failed: {exc}")
+
             # Run interrupted by Roblox closing, and the game is now back and
             # docked: pick the run up again so it doesn't need a human to hit
             # Start. Fires once per outage -- cleared whether the still-live
@@ -4837,6 +4963,11 @@ def _launch_ui():
             "debug_screenshot": lambda: api.push_ui("saveDebugScreenshot"),
             "image_manager": lambda: api.push_ui("toggleImageManagerHotkey"),
             "toggle_compact": lambda: api.push_ui("toggleCompactStrip"),
+            # NOT routed through push_ui either, and for a sharper version of
+            # the reason below: this one exists for when the window is
+            # minimized, which is exactly when the page cannot be relied on
+            # to do anything about it.
+            "restore_window": lambda: api.restore_window(),
             # NOT routed through push_ui/JS: stopping has to win over
             # everything else regardless of what the UI thread is doing
             # (mid screen-switch animation, waiting on an evaluate_js round

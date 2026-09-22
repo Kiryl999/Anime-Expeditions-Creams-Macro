@@ -877,6 +877,7 @@ let rebindingAction = null;
 // Esc during capture instead.
 const HOTKEY_DEFAULTS = {
   toggle_game: 'f4', skip_waiting: '', macro_start: 'f1', macro_stop: 'f2', macro_pause: 'f5', debug_screenshot: 'f3',
+  restore_window: 'f8',
   image_manager: 'f6', toggle_compact: 'f7', game_auto_upgrade: '',
 };
 
@@ -959,6 +960,7 @@ async function resetHotkeys() {
     updateKeybindDisplay('macro_stop', hk.macro_stop || '');
     updateKeybindDisplay('macro_pause', hk.macro_pause || '');
     updateKeybindDisplay('debug_screenshot', hk.debug_screenshot || '');
+    updateKeybindDisplay('restore_window', hk.restore_window || '');
     updateKeybindDisplay('image_manager', hk.image_manager || '');
     updateKeybindDisplay('toggle_compact', hk.toggle_compact || '');
     updateKeybindDisplay('game_auto_upgrade', hk.game_auto_upgrade || '');
@@ -1188,6 +1190,7 @@ async function loadSettingsUI() {
     updateKeybindDisplay('macro_stop', hk.macro_stop || '');
     updateKeybindDisplay('macro_pause', hk.macro_pause || '');
     updateKeybindDisplay('debug_screenshot', hk.debug_screenshot || '');
+    updateKeybindDisplay('restore_window', hk.restore_window || '');
     updateKeybindDisplay('image_manager', hk.image_manager || '');
     updateKeybindDisplay('toggle_compact', hk.toggle_compact || '');
     updateKeybindDisplay('game_auto_upgrade', hk.game_auto_upgrade || '');

@@ -663,6 +663,31 @@ def set_window_icon(hwnd: int, ico_path: str) -> bool:
     return ok
 
 
+def is_minimized(hwnd: int) -> bool:
+    """Whether hwnd is currently minimized to the taskbar."""
+    return bool(user32.IsIconic(hwnd))
+
+
+def restore_window(hwnd: int) -> bool:
+    """Un-minimize hwnd, WITHOUT bringing it to the foreground.
+
+    activate_window() also un-minimizes, but it exists to take focus, and
+    taking focus is exactly wrong for the caller this was written for: the
+    dock watchdog heals a window Windows minimized on its own (see main's
+    _restore_gui_if_minimized) and must not yank focus away from whatever
+    the user is doing on their other screen every time it does.
+
+    Returns whether the window is actually un-minimized afterwards, rather
+    than whether ShowWindow was called -- the whole point of the caller is
+    that something else minimized it, so "did it take" is the only useful
+    answer.
+    """
+    if not user32.IsIconic(hwnd):
+        return True
+    user32.ShowWindow(hwnd, SW_RESTORE)
+    return not user32.IsIconic(hwnd)
+
+
 def activate_window(hwnd: int) -> bool:
     """Brings hwnd to the foreground -- returns whether it actually worked.
 
