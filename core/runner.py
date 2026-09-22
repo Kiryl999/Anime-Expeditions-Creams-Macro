@@ -1952,6 +1952,17 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # needs nav_select_stage first). Skip the confirm and let the Start
         # tail below click nav_start. See EventOps._select_summer_portal.
         portal_ready = (mode == "portals") or (mode == "event" and task.get("stage") == "portal")
+        if portal_ready:
+            # Every other mode gets here through a _click_and_verify_gone on
+            # its confirm button, which waits for that click to land and
+            # settles afterwards -- incidentally giving the stage screen time
+            # to finish opening. Portals skip that confirm entirely, so this
+            # is the only thing standing between "Activate Portal" and a
+            # search for a Start button on a screen still animating in.
+            # See PORTAL_STAGE_SETTLE.
+            self._interruptible_sleep(PORTAL_STAGE_SETTLE, stop_event)
+            if self._checkpoint(stop_event):
+                return False
         if task.get("play_mode") != "matchmaking" and not portal_ready:
             if mode == "tournament":
                 confirm_image = "nav_entertournament"
@@ -3746,6 +3757,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         re-click when nav_start is still actually visible (the click really
         didn't register); once it's gone, that's success -- keep waiting for
         nav_unitmanager instead of trying to click a button that isn't there.
+
+        The click itself goes through _click_start_button, which is what
+        makes it a click the game actually receives (focus, hover-in,
+        verified) rather than a bare click_match -- see its own docstring.
         """
         clicked = False
         for _ in range(1, SOLO_START_RETRY_ATTEMPTS + 1):
@@ -3767,11 +3782,17 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if self._checkpoint(stop_event):
                 return False
             if start_match is not None:
+                # The screen behind this button may still be animating in --
+                # the portal path arrives here with nothing between it and
+                # "Activate Portal" at all -- so the position is re-confirmed
+                # before it is clicked. See _settled_match_any.
+                start_match = self._settled_match_any(
+                    hwnd, NAV_START_IMAGE_NAMES, stop_event, start_match)
                 debug_path = self._debug_save(hwnd, start_name, start_match)
                 suffix = f" Debug: {debug_path}" if debug_path else ""
                 self._log(f'[Macro] Found "{start_name}" (score {start_match["score"]:.2f}) -- clicking it.{suffix}')
                 self._set_status(action="Clicking Start...")
-                vision.click_match(self._mouse, hwnd, start_match)
+                self._click_start_button(hwnd, stop_event, start_match, start_name)
                 clicked = True
             elif not clicked:
                 # Never managed to click it even once, and it's already
@@ -3806,6 +3827,92 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._log(f'[Macro] "nav_unitmanager" never matched across {SOLO_START_RETRY_ATTEMPTS} Start '
                    f'attempts -- never teleported in-game, stopping.')
         return False
+
+    def _settled_match_any(self, hwnd, names: tuple, stop_event: threading.Event = None,
+                            first: dict = None) -> dict:
+        """Re-find `names` until the centre stops moving, and return the last
+        position seen.
+
+        vision.wait_for_image returns the FIRST frame that clears the
+        threshold, and a panel sliding or fading into place clears it while
+        it is still moving -- so the centre it hands back can be stale by the
+        time click_match converts and clicks it. Over Remote Desktop the
+        frame being matched is itself a beat behind, which widens the gap
+        further. Reported live on the portal path, where the stage screen
+        opens straight out of "Activate Portal" with no Select Stage confirm
+        in between to absorb the animation.
+
+        Cheap when nothing is moving: two looks CLICK_SETTLE_INTERVAL apart
+        agree and it returns. Gives up after CLICK_SETTLE_MAX_LOOKS rather
+        than waiting out an animation that never settles, and returns `first`
+        unchanged if the button disappears meanwhile -- a vanished button is
+        the caller's business, not this one's.
+        """
+        match = first
+        for _ in range(CLICK_SETTLE_MAX_LOOKS):
+            self._interruptible_sleep(CLICK_SETTLE_INTERVAL, stop_event)
+            if stop_event is not None and stop_event.is_set():
+                return match
+            try:
+                again, _name = vision.find_image_any(hwnd, names)
+            except vision.TemplateNotFound:
+                return match
+            if again is None:
+                return match
+            if (match is not None
+                    and abs(again["cx"] - match["cx"]) <= CLICK_SETTLE_TOLERANCE
+                    and abs(again["cy"] - match["cy"]) <= CLICK_SETTLE_TOLERANCE):
+                return again
+            if match is not None:
+                self._log(f'[Macro] The button moved {abs(again["cx"] - match["cx"])}x'
+                          f'{abs(again["cy"] - match["cy"])}px between looks -- still animating in, '
+                          f'waiting for it to settle before clicking.')
+            match = again
+        return match
+
+    def _click_start_button(self, hwnd, stop_event: threading.Event, match: dict, name: str) -> None:
+        """Click Start so the game actually gets it, and re-click if it
+        didn't.
+
+        A bare click_match was missing all three things the rest of this
+        codebase already does for a click the game has to receive (see
+        _click_close_popup_if_found, which has the same list): activate the
+        window first, approach with real relative moves, and check the
+        button actually went away afterwards.
+
+        The check is the point. Without it a dropped click cost a full
+        SOLO_TELEPORT_PER_ATTEMPT_TIMEOUT (20s) before anything noticed, and
+        the caller only has SOLO_START_RETRY_ATTEMPTS of those -- so a run
+        that kept dropping the click sat on the stage screen for a minute
+        and then stopped the task. Here it costs SOLO_START_VERIFY_DELAY and
+        is clicked again at its current position.
+
+        Returns nothing: a Start button that is still up after every retry
+        is still worth waiting on (the click may have registered and the
+        button may just be slow to go), so the caller's teleport wait stays
+        in charge of deciding this failed.
+        """
+        for attempt in range(1, SOLO_START_CLICK_RETRIES + 1):
+            if not wm.activate_window(hwnd):
+                self._log(f'[Macro] Could not confirm focus before clicking "{name}" -- '
+                          f'the click may not register.')
+            vision.click_match(self._mouse, hwnd, match, shuffle=True)
+            self._interruptible_sleep(SOLO_START_VERIFY_DELAY, stop_event)
+            if stop_event is not None and stop_event.is_set():
+                return
+            try:
+                still_there, _name = vision.find_image_any(hwnd, NAV_START_IMAGE_NAMES)
+            except vision.TemplateNotFound:
+                return
+            if still_there is None:
+                return
+            match = still_there
+            if attempt < SOLO_START_CLICK_RETRIES:
+                self._log(f'[Macro] "{name}" is still on screen {SOLO_START_VERIFY_DELAY:.1f}s after the '
+                          f'click -- it did not register, clicking it again '
+                          f'(attempt {attempt + 1}/{SOLO_START_CLICK_RETRIES}).')
+        self._log(f'[Macro] "{name}" still showing after {SOLO_START_CLICK_RETRIES} clicks -- '
+                  f'waiting for the teleport anyway in case one of them took.')
 
     def _click_found_image(self, hwnd, name: str, timeout: float, stop_event: threading.Event = None,
                             shuffle: bool = False, threshold: float = vision.DEFAULT_THRESHOLD, region: tuple = None) -> dict:

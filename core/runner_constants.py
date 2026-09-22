@@ -604,6 +604,34 @@ REPEAT_ENTRY_SETTLE = 5.0
 MATCHMAKING_TELEPORT_TIMEOUT = 300.0
 SOLO_START_RETRY_ATTEMPTS = 3
 SOLO_TELEPORT_PER_ATTEMPT_TIMEOUT = 20.0  # generous per chunk -- a slow teleport shouldn't burn through attempts
+# Solo's Start click never got the treatment every other must-land click in
+# here already has (focus, hover-in, verify -- see _click_close_popup_if_found
+# and _click_and_verify_gone). It clicked once and then spent a full
+# SOLO_TELEPORT_PER_ATTEMPT_TIMEOUT finding out whether the game had got it,
+# and there are only SOLO_START_RETRY_ATTEMPTS of those. Reported live over
+# Remote Desktop, where a dropped click is routine: the round simply never
+# starts. Checking the button went away costs a second and re-clicks on the
+# spot instead of paying 20s to learn the same thing.
+SOLO_START_VERIFY_DELAY = 1.5
+SOLO_START_CLICK_RETRIES = 3
+
+# Portals reach the stage screen straight from "Activate Portal" -- there is
+# no Select Stage confirm in between (see _enter_selected_stage), and that
+# confirm is what made every other mode wait for the screen to finish opening
+# before anything looked for Start. Without it the search starts against a
+# screen that is still animating in. Reported live: "it wants to press Start
+# too early."
+PORTAL_STAGE_SETTLE = 1.5
+
+# A button that is still sliding or fading into place matches above threshold
+# before it has stopped moving, and vision.wait_for_image returns the FIRST
+# frame over the line -- so the centre handed to click_match is already stale
+# by the time the click lands, more so over Remote Desktop, where the frame
+# being matched is itself a beat behind. Re-find until the centre holds still
+# between two looks, then click that.
+CLICK_SETTLE_INTERVAL = 0.25
+CLICK_SETTLE_MAX_LOOKS = 4
+CLICK_SETTLE_TOLERANCE = 4  # reference-space px a centre may drift and still count as settled
 TELEPORT_POLL_INTERVAL = 0.3
 RECONNECT_IMAGE_NAMES = ("reconnect",)
 

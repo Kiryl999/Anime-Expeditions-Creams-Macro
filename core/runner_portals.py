@@ -237,7 +237,15 @@ class PortalsOp:
 
         # Confirm (Activate Portal on entry; the picker's Select button)
         # lives in the portal_activate folder.
-        if self._click_found_image(hwnd, "portal_activate", EVENT_SCREEN_TIMEOUT, stop_event) is None:
+        #
+        # Verified rather than fire-and-forget: this is the last click before
+        # the stage screen, and nothing downstream would ever notice it had
+        # been dropped -- the run would just wait out SOLO_START_TIMEOUT on a
+        # Start button that was never going to appear, because the picker was
+        # still up. `nav_start` counts as proof too, for the layouts where the
+        # picker stays drawn behind the stage screen for a moment.
+        if not self._click_and_verify_gone(hwnd, stop_event, "portal_activate",
+                                           EVENT_SCREEN_TIMEOUT, success_name="nav_start"):
             self._spam_back_until_gone(hwnd, stop_event)
             return False
         return not self._checkpoint(stop_event)

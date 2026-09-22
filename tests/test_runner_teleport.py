@@ -201,3 +201,80 @@ def test_slow_solo_teleport_waits_across_chunks_without_reclicking(monkeypatch):
     assert runner._click_start_and_wait_teleport(
         123, threading.Event(), webhook={}, task={"map": "Map"}) is True
     assert clicks == ["start"]
+
+
+def _start_click_runner(monkeypatch, find_results, clicks):
+    """A runner whose Start click is fully observable: every click is
+    recorded and every settle is instant."""
+    runner = MacroRunner(MagicMock(), MagicMock(), MagicMock())
+    runner._debug_save = lambda *_args, **_kwargs: ""
+    runner._interruptible_sleep = lambda *_args, **_kwargs: None
+    monkeypatch.setattr(runner_module.wm, "activate_window", lambda _hwnd: True)
+    monkeypatch.setattr(
+        runner_module.vision, "click_match",
+        lambda _mouse, _hwnd, match, **_kwargs: clicks.append((match["cx"], match["cy"])))
+    monkeypatch.setattr(
+        runner_module.vision, "find_image_any",
+        lambda *_args, **_kwargs: next(find_results))
+    return runner
+
+
+def test_start_click_is_clicked_again_when_the_button_never_went_away(monkeypatch):
+    """A dropped Start click used to cost a full 20s teleport wait before
+    anything noticed, and there are only three of those. Now the button is
+    checked right after the click and clicked again on the spot."""
+    match = {"score": 1.0, "cx": 500, "cy": 400, "x": 1, "y": 2, "w": 3, "h": 4}
+    clicks = []
+    # Settle: two agreeing looks. Then still-there, still-there, gone.
+    find_results = iter([
+        (match, "nav_start"), (match, "nav_start"),
+        (match, "nav_start"),
+        (match, "nav_start"),
+        (None, None),
+    ])
+    runner = _start_click_runner(monkeypatch, find_results, clicks)
+
+    runner._click_start_button(123, threading.Event(), match, "nav_start")
+
+    assert clicks == [(500, 400), (500, 400), (500, 400)]
+
+
+def test_start_click_stops_clicking_once_the_button_is_gone(monkeypatch):
+    match = {"score": 1.0, "cx": 500, "cy": 400, "x": 1, "y": 2, "w": 3, "h": 4}
+    clicks = []
+    runner = _start_click_runner(monkeypatch, iter([(None, None)]), clicks)
+
+    runner._click_start_button(123, threading.Event(), match, "nav_start")
+
+    assert clicks == [(500, 400)]
+
+
+def test_start_button_position_is_reconfirmed_before_it_is_clicked(monkeypatch):
+    """The portal path reaches Start with the stage screen still animating
+    in, and wait_for_image returns the first frame over the threshold -- so
+    the centre it found can already be stale. The position that gets clicked
+    is the one that held still between two looks, not the first one seen."""
+    moving = {"score": 1.0, "cx": 400, "cy": 400, "x": 1, "y": 2, "w": 3, "h": 4}
+    settled = {"score": 1.0, "cx": 500, "cy": 400, "x": 1, "y": 2, "w": 3, "h": 4}
+    clicks = []
+    runner = _start_click_runner(
+        monkeypatch,
+        iter([(moving, "nav_start"), (settled, "nav_start"), (settled, "nav_start")]),
+        clicks)
+
+    result = runner._settled_match_any(
+        123, ("nav_start",), threading.Event(), {"score": 1.0, "cx": 300, "cy": 400})
+
+    assert (result["cx"], result["cy"]) == (500, 400)
+
+
+def test_settled_match_keeps_the_last_position_when_the_button_disappears(monkeypatch):
+    """A button that vanishes mid-settle is the caller's problem (that is how
+    a successful click is detected upstream), not something to invent a
+    position for."""
+    first = {"score": 1.0, "cx": 500, "cy": 400}
+    runner = _start_click_runner(monkeypatch, iter([(None, None)]), [])
+
+    result = runner._settled_match_any(123, ("nav_start",), threading.Event(), first)
+
+    assert result is first

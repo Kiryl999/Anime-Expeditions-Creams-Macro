@@ -30,6 +30,11 @@ def _runner():
     runner._keyboard = kb
     runner._click_found_image = (
         lambda hwnd, name, timeout, stop_event, **k: runner.clicked.append(("image", name)) or {"score": 0.99})
+    # portal_activate is the one confirm here that goes through the verified
+    # click instead (a dropped click there is invisible downstream) -- it
+    # records the same way so the ordering assertions still read the same.
+    runner._click_and_verify_gone = (
+        lambda hwnd, stop_event, name, timeout, **k: runner.clicked.append(("image", name)) or True)
     # The tier card no longer goes through _click_found_image -- it shares
     # PortalsOp._find_portal_card with the Inventory lead-in.
     runner._find_portal_card = (
@@ -96,9 +101,9 @@ def test_select_summer_portal_backs_out_when_tier_card_missing(monkeypatch):
 def test_select_summer_portal_backs_out_when_confirm_missing(monkeypatch):
     runner = _runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
-    runner._click_found_image = (
-        lambda hwnd, name, timeout, stop_event, **k: runner.clicked.append(("image", name)) or (
-            None if name == "portal_activate" else {"score": 0.99}))
+    runner._click_and_verify_gone = (
+        lambda hwnd, stop_event, name, timeout, **k: runner.clicked.append(("image", name)) or (
+            name != "portal_activate"))
     assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=False) is False
     assert runner.backs == [1]
 
@@ -132,6 +137,7 @@ def _enter_stage_runner(calls):
     runner._click_start_and_wait_teleport = lambda *a, **k: (calls.append(("start", a)) or True)
     runner._click_enter_matchmaking = lambda *a, **k: True
     runner._wait_teleport_in = lambda *a, **k: True
+    runner._interruptible_sleep = lambda seconds, stop_event=None: calls.append(("sleep", seconds))
     return runner
 
 
@@ -156,3 +162,30 @@ def test_enter_selected_stage_story_still_clicks_select_stage_confirm():
         hwnd=1, stop_event=threading.Event(), task=task, mode="story", coords={}, webhook={}) is True
     assert any(c[0] == "confirm" for c in calls)
     assert any(c[0] == "start" for c in calls)
+
+
+def test_enter_selected_stage_lets_the_portal_stage_screen_settle_before_start():
+    """Portals skip the confirm click that made every other mode wait for the
+    stage screen to finish opening, so the Start search used to start against
+    a screen still animating in -- and a Start button found mid-animation is
+    clicked where it was, not where it ends up. Reported live over Remote
+    Desktop as "it presses Start too early"."""
+    calls = []
+    runner = _enter_stage_runner(calls)
+    task = {"play_mode": "solo", "mode": "portals"}
+    assert runner._enter_selected_stage(
+        hwnd=1, stop_event=threading.Event(), task=task, mode="portals", coords={}, webhook={}) is True
+
+    order = [c[0] for c in calls]
+    assert order.index("sleep") < order.index("start"), "the settle has to come before the Start search"
+    assert ("sleep", runner_module.PORTAL_STAGE_SETTLE) in calls
+
+
+def test_enter_selected_stage_does_not_stall_non_portal_modes():
+    """Story already waits through its confirm click -- no extra settle."""
+    calls = []
+    runner = _enter_stage_runner(calls)
+    task = {"play_mode": "solo", "mode": "story", "stage": "1"}
+    runner._enter_selected_stage(
+        hwnd=1, stop_event=threading.Event(), task=task, mode="story", coords={}, webhook={})
+    assert not any(c[0] == "sleep" for c in calls)

@@ -203,9 +203,13 @@ class EventOps:
         time.sleep(SETTLE_DELAY)
 
         # Confirm: "Activate Portal" on entry, the "Select" button post-victory
-        # (both live in the portal_activate folder).
+        # (both live in the portal_activate folder). Verified rather than
+        # fire-and-forget, for the reason spelled out in
+        # PortalsOp._select_portal_on_picker -- nothing downstream notices a
+        # dropped click here.
         self._set_status(action="Activating Summer portal..." if entry else "Confirming Summer portal...")
-        if self._click_found_image(hwnd, "portal_activate", EVENT_SCREEN_TIMEOUT, stop_event) is None:
+        if not self._click_and_verify_gone(hwnd, stop_event, "portal_activate",
+                                           EVENT_SCREEN_TIMEOUT, success_name="nav_start"):
             self._spam_back_until_gone(hwnd, stop_event)
             return False
         return not self._checkpoint(stop_event)

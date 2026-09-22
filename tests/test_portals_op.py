@@ -30,6 +30,11 @@ def _runner():
     runner._click_found_image = (
         lambda hwnd, name, timeout, stop, **k: runner.clicked.append(("image", name)) or (
             {"score": 0.99} if name != "missing" else None))
+    # portal_activate is the one confirm here that goes through the verified
+    # click instead (a dropped click there is invisible downstream) -- it
+    # records the same way so the ordering assertions still read the same.
+    runner._click_and_verify_gone = (
+        lambda hwnd, stop, name, timeout, **k: runner.clicked.append(("image", name)) or name != "missing")
     kb = type("Kb", (), {})()
     kb.combo = lambda *a, **k: runner.clicked.append(("combo", a))
     kb.tap = lambda vk, **k: runner.clicked.append(("tap", vk))
