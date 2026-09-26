@@ -2,6 +2,21 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.13] - 2026-09-26
+
+### New
+- **Flaming Monastery map**: the 8th Story map. You can pick it in a task's Story map list, Regular and Daily Challenge recognize it when they land there, and Auto Bounty can send you to it. **Give it a Macro Operation under Story Map Setup, for Auto Challenge and for Auto Bounty** -- both refuse to start while any Story map has none, so after updating they stay off until you do.
+- **Type the Auto Fishing water point**: a task's Water Point now has X and Y fields next to Pick, so you can fix a picked point by hand or copy one from another task. Both are needed; clearing a field unsets the point.
+
+### Fixed
+- **Portals pick the portal you asked for**: with more than one kind of portal in the game, the macro could click whichever portal sat at the front of the picker without ever typing its name. It skipped the search whenever a portal card already looked listed -- and in the picker the portals look alike apart from the name printed on the card. The Portal Name is now typed into the search on every pick, before any card is looked for, on the way in and after every win.
+
+### Changed
+- **One set of portal card crops for every portal**: the `summer_portal` crop folder is now `portal_card`. The list is filtered by name first, so a crop there only has to recognize "a portal card" -- best just the portal art, without the name under it. The art is tinted differently per tier, so if a card is not found, add a crop of that tier's card (Settings > General > Image Manager). When no card is found, the macro now saves a `portal_card_not_found` screenshot of what was on screen.
+
+### Removed
+- **Event > Portal**: portals now run only through the **Portals** task (Inventory > Portals tab), which reaches every portal, Summer included. Existing Event > Portal tasks -- in the queue, in presets and in imported files -- turn into a Portals task with the Portal Name "summer" by themselves, and the log says so.
+
 ## [0.21.12] - 2026-09-22
 
 ### Fixed
