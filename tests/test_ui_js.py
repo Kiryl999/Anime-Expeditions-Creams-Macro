@@ -149,6 +149,21 @@ def test_extract_after_normalization_preserves_decimal_strings_and_repairs_scien
     ]
 
 
+def test_a_typed_water_point_is_stored_like_a_picked_one(tmp_path):
+    """Auto Fishing's water point can be typed as well as picked. Typed, it
+    must land as the same int the picker stores -- and an emptied box as
+    null, which is what "not set" means to the runner, never 0 (a real
+    click point in the top-left corner)."""
+    out = run_js("""
+        eval(extract('taskCoordValue'));
+        console.log(JSON.stringify([
+          taskCoordValue('512'), taskCoordValue('512.8'), taskCoordValue('0'),
+          taskCoordValue(''), taskCoordValue('-4'), taskCoordValue('abc')
+        ]));
+    """, tmp_path)
+    assert out == [512, 512, 0, None, None, None]
+
+
 def test_infinite_task_summary_shows_its_exit_wave(tmp_path):
     out = run_js("""
         const TASK_DATA = { story: { label: 'Story' } };

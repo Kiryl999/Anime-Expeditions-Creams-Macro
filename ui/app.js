@@ -2279,6 +2279,14 @@ function moveRetiredEventPortal(t) {
   return true;
 }
 
+// A typed task coordinate (Auto Fishing's water point) as the int the picker
+// would have stored, or null for an empty or unusable box -- null is what
+// "not set" means to the runner (_fishing_point), never a stray 0 or NaN.
+function taskCoordValue(raw) {
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 function findTask(id) { return taskCards.find(t => t.id === id); }
 
 // Debounced whole-list save -- every inline edit funnels through here, so
@@ -2981,13 +2989,20 @@ function renderTaskBuilder() {
        data-tooltip="Cast at a fixed spot on a timer while the round runs">${t.fishing ? 'On' : 'Off'}</button>`,
     'Fish passively during the round -- position your character yourself (Walk Path block)'));
   if (t.fishing) {
-    const pt = (t.fishing_x != null && t.fishing_y != null) ? `X ${t.fishing_x}, Y ${t.fishing_y}` : 'Not set';
+    // Typed or picked -- both write the same fields, in the same numbers the
+    // picker shows, so a point read off one task can be copied into another.
+    // Not a structural change, so typing keeps focus (see setTaskProp).
+    const coordInput = axis => `<input type="number" class="block-input" min="0" step="1"
+         style="width:64px;" placeholder="${axis.toUpperCase()}"
+         value="${t[`fishing_${axis}`] ?? ''}"
+         oninput="setTaskProp('${t.id}', 'fishing_${axis}', taskCoordValue(this.value))">`;
     fields.push(field('Water Point',
       `<div class="flex items-center gap-2" style="width:100%;">
-         <span class="wh-hint" style="flex:1;margin:0;">${pt}</span>
+         ${coordInput('x')}
+         ${coordInput('y')}
          <button class="task-toolbar-btn" onclick="openTaskPointPicker('${t.id}', 'fishing')">Pick</button>
        </div>`,
-      'Click the spot on the water to cast at -- picked on a frozen screenshot'));
+      'The spot on the water to cast at -- type X and Y, or Pick it on a frozen screenshot. Both are needed'));
     fields.push(field('Cast Every',
       `<div class="task-rep-group" style="width:100%;"><input type="number" min="1" step="1"
          value="${Math.max(1, parseInt(t.fishing_interval, 10) || DEFAULT_FISHING_INTERVAL)}"
