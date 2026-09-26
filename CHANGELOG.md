@@ -2,6 +2,12 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.13.2] - 2026-09-26
+
+### Fixed
+- **Portal search starts typing right away**: after clicking into the portal search box, the macro could sit there for around 20 seconds before typing the portal name -- most visible over Remote Desktop. Emptying the box first takes 33 key presses, and each one waited out your Macro Speed delay; at 600ms that adds up to about 20 seconds (at the default 0ms you never saw it). The box is now emptied in about a second, with one Macro Speed pause after it.
+- **The portal search box is really emptied**: it was cleared from the wrong end of the text, so anything already in the box stayed there and the portal name was typed after it. It did not show because the box usually opens empty.
+
 ## [0.21.13] - 2026-09-26
 
 ### New
