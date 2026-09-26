@@ -1,7 +1,7 @@
-"""Portal picker: search Summer, click the tier card, confirm -- the extra
-step that makes the Portal event kind specialized. Used both on entry (after
-the Portal kind card) and post-victory (after the Victory screen's Select
-Portal button)."""
+"""Portal picker: search the task's portal name, click the card, confirm.
+Used both on entry (Inventory > Portals tab) and post-victory (after the
+Victory screen's Select Portal button). Plus how a portal's stage screen is
+entered afterwards."""
 
 import threading
 
@@ -20,13 +20,17 @@ def _runner():
     runner._set_status = lambda **kw: None
     runner._log = lambda message: runner.logged.append(message)
     runner._spam_back_until_gone = lambda hwnd, stop_event: runner.backs.append(hwnd)
+    runner._interruptible_sleep = lambda *a, **k: None
+    runner.screenshots = []
+    runner._save_debug_screenshot_unconditional = (
+        lambda hwnd, name: runner.screenshots.append(name) or None)
     # A real MacroRunner always has these; the fixture skips __init__.
     runner._coords = dict(DEFAULT_COORDS)
     runner._click_ref = lambda hwnd, x, y, **k: runner.clicked.append(("ref", x, y))
     kb = type("Kb", (), {})()
     kb.combo = lambda *a, **k: runner.clicked.append(("combo", a))
     kb.tap = lambda vk, **k: runner.clicked.append(("tap", vk))
-    kb.type_text = lambda text, **k: runner.typed.append(text)
+    kb.type_text = lambda text, **k: runner.clicked.append(("type", text)) or runner.typed.append(text)
     runner._keyboard = kb
     runner._click_found_image = (
         lambda hwnd, name, timeout, stop_event, **k: runner.clicked.append(("image", name)) or {"score": 0.99})
@@ -35,42 +39,39 @@ def _runner():
     # records the same way so the ordering assertions still read the same.
     runner._click_and_verify_gone = (
         lambda hwnd, stop_event, name, timeout, **k: runner.clicked.append(("image", name)) or True)
-    # The tier card no longer goes through _click_found_image -- it shares
-    # PortalsOp._find_portal_card with the Inventory lead-in.
     runner._find_portal_card = (
         lambda hwnd, stop_event, candidates: runner.clicked.append(("card", candidates))
         or ({"score": 0.97, "cx": 500, "cy": 250}, candidates[0]))
-    # The search path by default -- the "card already listed" shortcut is
-    # tested on its own below.
-    runner._peek_portal_card = lambda hwnd, stop_event, candidates: (None, None)
     mouse = type("Mouse", (), {})()
     mouse.click = lambda x, y, **k: runner.clicked.append(("click", x, y))
     runner._mouse = mouse
     return runner
 
 
-def test_select_summer_portal_entry_skips_select_new_portal(monkeypatch):
+def test_post_victory_clicks_select_portal_then_searches_then_confirms(monkeypatch):
     runner = _runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
-    assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=True) is True
-    images = [call[1] for call in runner.clicked if call[0] == "image"]
-    assert images == ["portal_search", "portal_activate"]
-    assert "select_new_portal" not in images
-    assert ("card", ("summer_portal",)) in runner.clicked
-    assert runner.typed == ["summer"]
-
-
-def test_select_summer_portal_post_victory_clicks_select_new_portal_first(monkeypatch):
-    runner = _runner()
-    monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
-    assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=False) is True
+    assert runner._select_portal_post_victory(1, threading.Event(), "summer") is True
     images = [call[1] for call in runner.clicked if call[0] == "image"]
     assert images == ["select_new_portal", "portal_search", "portal_activate"]
-    assert ("card", ("summer_portal",)) in runner.clicked
     assert runner.typed == ["summer"]
 
 
-def test_select_summer_portal_clears_the_box_without_ever_pressing_ctrl(monkeypatch):
+def test_the_name_is_typed_before_any_card_is_looked_for(monkeypatch):
+    """The portals look alike in the picker; only the name printed on the card
+    differs. So the card may only be searched for once the game's search has
+    filtered the list by that name -- never before, where the generic crop
+    would happily match whichever portal is at the front."""
+    runner = _runner()
+    monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
+    assert runner._select_portal_on_picker(1, threading.Event(), "Frost Rift") is True
+    order = [call[0] for call in runner.clicked]
+    assert order.index("type") < order.index("card")
+    assert order.count("card") == 1
+    assert runner.typed == ["Frost Rift"]
+
+
+def test_the_box_is_cleared_without_ever_pressing_ctrl(monkeypatch):
     """The box is cleared with HOME + backspaces, never Ctrl+A.
 
     The click into it is aimed at a crop of the placeholder word "Search...",
@@ -80,7 +81,7 @@ def test_select_summer_portal_clears_the_box_without_ever_pressing_ctrl(monkeypa
     """
     runner = _runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
-    runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=True)
+    runner._select_portal_on_picker(1, threading.Event(), "summer")
 
     assert not any(call[0] == "combo" for call in runner.clicked), "no key combo may be sent here"
     taps = [call[1] for call in runner.clicked if call[0] == "tap"]
@@ -90,42 +91,26 @@ def test_select_summer_portal_clears_the_box_without_ever_pressing_ctrl(monkeypa
     assert runner.typed == ["summer"]
 
 
-def test_select_summer_portal_backs_out_when_tier_card_missing(monkeypatch):
+def test_backs_out_when_the_card_is_missing(monkeypatch):
     runner = _runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
     runner._find_portal_card = lambda hwnd, stop_event, candidates: (None, None)
-    assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=True) is False
+    assert runner._select_portal_on_picker(1, threading.Event(), "summer") is False
     assert runner.backs == [1]
+    assert any("Portal Name" in line for line in runner.logged), "say what to check"
+    # The screen is the only way to tell a search that matched nothing from
+    # a card no crop fits -- so it is saved, and before backing out of it.
+    assert runner.screenshots == ["portal_card_not_found"]
 
 
-def test_select_summer_portal_backs_out_when_confirm_missing(monkeypatch):
+def test_backs_out_when_the_confirm_is_missing(monkeypatch):
     runner = _runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
     runner._click_and_verify_gone = (
         lambda hwnd, stop_event, name, timeout, **k: runner.clicked.append(("image", name)) or (
             name != "portal_activate"))
-    assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=False) is False
+    assert runner._select_portal_post_victory(1, threading.Event(), "summer") is False
     assert runner.backs == [1]
-
-
-def test_select_summer_portal_skips_the_search_when_the_card_is_already_listed(monkeypatch):
-    """One portal owned: the tier card is listed before anything is typed, so
-    the box is never touched and the card is clicked straight away."""
-    runner = _runner()
-    monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
-    card = {"score": 0.98, "cx": 290, "cy": 255}
-    runner._peek_portal_card = lambda hwnd, stop_event, candidates: (card, "summer_portal")
-    clicked = []
-    monkeypatch.setattr(runner_module.vision, "click_match",
-                        lambda mouse, hwnd, match: clicked.append(match))
-
-    assert runner._select_summer_portal(hwnd=1, stop_event=threading.Event(), entry=False) is True
-    images = [call[1] for call in runner.clicked if call[0] == "image"]
-    assert images == ["select_new_portal", "portal_activate"], "no portal_search click"
-    assert runner.typed == []
-    assert not any(call[0] == "card" for call in runner.clicked), "no card search"
-    assert clicked == [card]
-    assert any("skipping the search" in line for line in runner.logged)
 
 
 def _enter_stage_runner(calls):
@@ -146,9 +131,9 @@ def test_enter_selected_stage_portal_leaps_straight_to_start():
     nav_select_stage confirm; the solo tail clicks nav_start directly."""
     calls = []
     runner = _enter_stage_runner(calls)
-    task = {"play_mode": "solo", "mode": "event", "stage": "portal"}
+    task = {"play_mode": "solo", "mode": "portals", "map": "summer"}
     assert runner._enter_selected_stage(
-        hwnd=1, stop_event=threading.Event(), task=task, mode="event", coords={}, webhook={}) is True
+        hwnd=1, stop_event=threading.Event(), task=task, mode="portals", coords={}, webhook={}) is True
     assert not any(c[0] == "confirm" for c in calls)
     assert any(c[0] == "start" for c in calls)
 

@@ -1,17 +1,19 @@
-"""Event mode (Summer Infinite & Fishing + Portal) navigation, as one mixin.
+"""Event mode (Summer Infinite & Fishing) navigation, as one mixin.
 
 Event is reached straight from the lobby via its OWN event button (not the
 Play -> gamemode -> map flow the other modes share) and has no map carousel or
 difficulty picker -- the gamemode screen offers "Infinite & Fishing" (the kind
-we run) and "Portal Mode" (reserved for later), and picking the card IS the
-whole selection. This mixin holds that navigation (and any event-only game
-rule later), split out of core/runner.py mechanically like the other *Ops
-classes -- see core/runner.py, which composes the mixins (MacroRunner).
+we run), and picking the card IS the whole selection. Its "Portal Mode" card
+is not used: portals are run by the Portals task, from the Inventory (see
+core/runner_portals.py).
+
+This mixin holds that navigation (and any event-only game rule later), split
+out of core/runner.py mechanically like the other *Ops classes -- see
+core/runner.py, which composes the mixins (MacroRunner).
 """
 import threading
 import time
 
-from . import vision
 from .runner_constants import *  # noqa: F401,F403 -- the shared constants namespace
 
 
@@ -30,8 +32,7 @@ class EventOps:
         """
         kind = str(act)
         # The Summer event's gamemode screen offers an "Infinite & Fishing"
-        # card (the one we run) and a "Portal Mode" card (reserved for later).
-        # Validate the chosen kind up front so a bad task field fails cleanly
+        # card (the one we run). Validate the chosen kind up front so a bad task field fails cleanly
         # here instead of mid-navigation.
         if kind not in EVENT_KIND_ORDER:
             self._log(f'[Macro] Unknown Event kind "{kind}" -- expected one of {EVENT_KIND_ORDER}.')
@@ -65,7 +66,7 @@ class EventOps:
         time.sleep(SETTLE_DELAY)
 
         # (2) Then the summer_event_gamemode card (the button that opens the
-        # Infinite & Fishing / Portal Mode picker) -- found and clicked by
+        # event kind picker) -- found and clicked by
         # image search. Its absence after the card click is the sign the card
         # click failed (spam back + retry from lobby).
         if self._click_found_image(hwnd, "summer_event_gamemode", EVENT_SCREEN_TIMEOUT, stop_event) is None:
@@ -75,8 +76,8 @@ class EventOps:
             return False
         time.sleep(SETTLE_DELAY)
 
-        # (3) Click the chosen event kind's card (Infinite & Fishing, or,
-        # later, Portal Mode). _reach_event_kind_selected is the single place
+        # (3) Click the chosen event kind's card (Infinite & Fishing).
+        # _reach_event_kind_selected is the single place
         # that turns the user's selection into a click, so adding a new kind
         # later is a one-line addition to EVENT_KIND_IMAGES rather than a new
         # click path. `scroll_power`/`scroll_nudges` are no longer used here
@@ -85,15 +86,6 @@ class EventOps:
         if not self._reach_event_kind_selected(hwnd, stop_event, kind):
             self._spam_back_until_gone(hwnd, stop_event)
             return False
-        # Portal picks + activates a specific Summer portal before entering
-        # (Infinite goes straight to the stage) -- the extra step that makes
-        # Portal "specialized". See _select_summer_portal.
-        if kind == "portal":
-            if not self._select_summer_portal(hwnd, stop_event, entry=True):
-                self._spam_back_until_gone(hwnd, stop_event)
-                return False
-            if self._checkpoint(stop_event):
-                return False
         # Let the stage/Enter-Matchmaking screen finish animating in before
         # the shared tail searches for its confirm button (same reason
         # _select_stage settles after its own click).
@@ -104,8 +96,7 @@ class EventOps:
         """Click the Summer event gamemode card for the chosen event kind.
 
         The gamemode screen shows an "Infinite & Fishing" card (the one we
-        run) and a "Portal Mode" card (Tiered & Secret Portals, reserved for
-        later). This is the ONE place that turns the user's selection into a
+        run). This is the ONE place that turns the user's selection into a
         click, so adding a new kind later is a one-line addition to
         EVENT_KIND_IMAGES rather than a new click path -- the kind is looked
         up there and the matching card clicked by image search. Mirrors
@@ -136,83 +127,6 @@ class EventOps:
         self._log(f'[Macro] Could not find the "{kind}" event card.')
         self._spam_back_until_gone(hwnd, stop_event)
         return False
-
-    def _select_summer_portal(self, hwnd, stop_event: threading.Event, entry: bool) -> bool:
-        """Pick + activate a Summer portal on the portal picker screen.
-
-        Reused at both ends of a Portal run: entry (entry=True, right after
-        the Portal kind card) and post-victory (entry=False, after clicking
-        the Victory screen's Select Portal button). Either way the steps are
-        the same -- clear + type "Summer" in the search box, click the tier
-        card (the `summer_portal` reference crop is tier-specific, so after
-        the Summer filter it matches only that tier), then the confirm button
-        (the `portal_activate` folder holds "Activate Portal" on entry and
-        the "Select" button post-victory) -- only "get to the picker first"
-        differs. On any failure it backs out to the lobby so the retry loop
-        starts clean.
-        """
-        if not entry:
-            self._set_status(action="Clicking Select Portal...")
-            if self._click_found_image(hwnd, "select_new_portal", EVENT_SCREEN_TIMEOUT, stop_event) is None:
-                self._spam_back_until_gone(hwnd, stop_event)
-                return False
-            if self._checkpoint(stop_event):
-                return False
-            time.sleep(SETTLE_DELAY)
-
-        # With one portal owned (or Summer already at the front) the tier card
-        # is listed before anything is typed, and the search is skipped --
-        # see PortalsOp._peek_portal_card.
-        self._set_status(action="Selecting Summer portal tier...")
-        match, _found = self._peek_portal_card(hwnd, stop_event, ("summer_portal",))
-        if match is not None:
-            self._log(f'[Macro] The Summer portal card is already listed (score {match["score"]:.2f}) '
-                      f'-- skipping the search and clicking it.')
-        else:
-            if self._checkpoint(stop_event):
-                return False
-            # Search the portal grid for Summer (other portals exist, and the
-            # box may still hold a previous query). Aiming and clearing both
-            # live in _focus_portal_search -- see it for why this no longer
-            # clicks the crop centre blindly and no longer clears with Ctrl+A.
-            self._set_status(action="Searching Summer portals...")
-            if not self._focus_portal_search(hwnd, stop_event):
-                self._spam_back_until_gone(hwnd, stop_event)
-                return False
-            self._keyboard.type_text("summer")
-            time.sleep(SETTLE_DELAY)
-            if self._checkpoint(stop_event):
-                return False
-
-            # The tier card (tier-specific crop, see the docstring above).
-            # Goes through the shared _find_portal_card so this path gets the
-            # same region-then-whole-window widening as the Inventory one --
-            # the list region is a hardcoded box and does not survive every
-            # layout.
-            self._set_status(action="Selecting Summer portal tier...")
-            match, _found = self._find_portal_card(hwnd, stop_event, ("summer_portal",))
-            if match is None:
-                self._log('[Macro] No Summer portal card found, on the picker or anywhere on screen. '
-                          'If it is visible, add a crop of it as "summer_portal" via '
-                          'Settings > General > Image Manager.')
-                self._spam_back_until_gone(hwnd, stop_event)
-                return False
-        vision.click_match(self._mouse, hwnd, match)
-        if self._checkpoint(stop_event):
-            return False
-        time.sleep(SETTLE_DELAY)
-
-        # Confirm: "Activate Portal" on entry, the "Select" button post-victory
-        # (both live in the portal_activate folder). Verified rather than
-        # fire-and-forget, for the reason spelled out in
-        # PortalsOp._select_portal_on_picker -- nothing downstream notices a
-        # dropped click here.
-        self._set_status(action="Activating Summer portal..." if entry else "Confirming Summer portal...")
-        if not self._click_and_verify_gone(hwnd, stop_event, "portal_activate",
-                                           EVENT_SCREEN_TIMEOUT, success_name="nav_start"):
-            self._spam_back_until_gone(hwnd, stop_event)
-            return False
-        return not self._checkpoint(stop_event)
 
     def _run_event_setup(self, hwnd, stop_event: threading.Event, task: dict,
                          scroll_power: int = None, scroll_nudges: int = None) -> bool:

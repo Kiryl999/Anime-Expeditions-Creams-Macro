@@ -390,19 +390,21 @@ FISHING_CLICK_INTERVAL = 6.0
 # The image folder names are exactly as they ship under Assets/ui/.
 EVENT_SCREEN_TIMEOUT = 10.0  # how long to wait for each Event screen (nav_event / summer_nav / the gamemode + kind cards) to appear
 
-# The Summer event's gamemode screen offers two cards: "Infinite & Fishing"
-# (waves + fishing) and "Portal Mode" (Tiered & Secret Portals). The user
-# picks which one to enter; this maps that choice to the card image(s) to
-# click. Mirrors TOURNAMENT_TYPE_IMAGES: each value is a tuple of candidate
-# crops (any match wins), so a card that renders in more than one visual
-# state can still be matched. Mirrors TASK_DATA.event.stages in ui/app.js.
-EVENT_KIND_ORDER = ["infinite", "portal"]
+# The Summer event's gamemode screen offers "Infinite & Fishing" (waves +
+# fishing), the one Event kind we run. This maps the chosen kind to the card
+# image(s) to click. Mirrors TOURNAMENT_TYPE_IMAGES: each value is a tuple of
+# candidate crops (any match wins), so a card that renders in more than one
+# visual state can still be matched. Mirrors TASK_DATA.event.stages in
+# ui/app.js.
+#
+# The screen's other card, "Portal Mode", used to be a kind here too. Portals
+# are no longer tied to the event -- every portal is reached the same way from
+# the Inventory's Portals tab, which is the Portals task (see
+# core/runner_portals.py) -- so that kind was retired and saved tasks on it
+# are migrated to a Portals task on load (refreshTaskQueue in ui/app.js).
+EVENT_KIND_ORDER = ["infinite"]
 EVENT_KIND_IMAGES = {
     "infinite": ("summer_event_infinite",),
-    # Portal Mode picks and activates a specific portal before entering, and
-    # its result screen offers "Select Portal" instead of "Repeat Stage" --
-    # see EventOps._select_summer_portal, used at both ends of the run.
-    "portal": ("summer_event_portal",),
 }
 # Fixed regions of the 1152x756 client the portal picker's two elements live
 # in -- the search box and the portal-card list. Boxing the searches keeps the
@@ -427,12 +429,13 @@ PORTAL_SEARCH_CLEAR_KEYS = 32  # longest plausible leftover query, with room to 
 # or animating in -- especially the post-victory one, which opens on top of
 # the result screen rather than on a settled inventory tab.
 PORTAL_CARD_TIMEOUT = 6.0
-# How long to look for the wanted card BEFORE typing a search (see
-# PortalsOp._peek_portal_card). With a single portal owned -- or the wanted
-# one already at the front -- the picker lists it straight away and the whole
-# search is wasted time. Short on purpose: it is paid on every pick where the
-# card is NOT listed yet, before the normal search runs.
-PORTAL_CARD_PEEK_TIMEOUT = 1.5
+# The generic portal card crop, tried after any "<name>_portal"/"<name>" crop
+# of the portal the task asked for. Not tied to one portal: the search has
+# already filtered the list by name when it is looked for, so the crops in
+# this folder only have to recognize "a portal card" -- best cut from the
+# portal art alone, without the name printed under it. Was "summer_portal"
+# while Summer was the only portal.
+PORTAL_CARD_IMAGE = "portal_card"
 
 # Tournament mode: reached through Play like Story/Raid -- its nav_tournament
 # button sits on the same gamemode menu (picked instead of Story), NOT via its

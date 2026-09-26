@@ -26,6 +26,7 @@ def _runner():
     # A real MacroRunner always has this; the fixture skips __init__.
     runner._coords = dict(DEFAULT_COORDS)
     runner._interruptible_sleep = lambda *a, **k: None
+    runner._save_debug_screenshot_unconditional = lambda hwnd, name: None
     runner._mouse = type("Mouse", (), {})()
     runner._click_found_image = (
         lambda hwnd, name, timeout, stop, **k: runner.clicked.append(("image", name)) or (
@@ -40,9 +41,6 @@ def _runner():
     kb.tap = lambda vk, **k: runner.clicked.append(("tap", vk))
     kb.type_text = lambda text, **k: runner.typed.append(text)
     runner._keyboard = kb
-    # The search path by default -- the "card already listed" shortcut has
-    # its own tests at the bottom.
-    runner._peek_portal_card = lambda hwnd, stop, candidates: (None, None)
     return runner
 
 
@@ -70,7 +68,7 @@ def test_run_portal_selection_from_inventory_backs_out_when_inventory_missing(mo
 def test_select_portal_on_picker_searches_and_activates(monkeypatch):
     runner = _runner()
     monkeypatch.setattr(portal_module.vision, "wait_for_image_any",
-                        lambda *a, **k: ({"score": 0.97, "cx": 500, "cy": 250}, "summer_portal"))
+                        lambda *a, **k: ({"score": 0.97, "cx": 500, "cy": 250}, "portal_card"))
     clicked = []
     monkeypatch.setattr(portal_module.vision, "click_match", lambda mouse, hwnd, match: clicked.append(match["cx"]))
     assert runner._select_portal_on_picker(1, threading.Event(), "summer") is True
@@ -83,7 +81,7 @@ def test_select_portal_on_picker_searches_and_activates(monkeypatch):
 def test_select_portal_on_picker_looks_for_crops_named_after_the_query(monkeypatch):
     """The Portal Name is not just what gets typed -- it names the card crop to
     look for, so running a non-Summer portal is just adding a crop under that
-    name. summer_portal stays last as the shipped fallback."""
+    name. portal_card stays last as the generic card every portal falls back to."""
     runner = _runner()
     searched = []
 
@@ -94,7 +92,7 @@ def test_select_portal_on_picker_looks_for_crops_named_after_the_query(monkeypat
     monkeypatch.setattr(portal_module.vision, "wait_for_image_any", fake_wait_any)
     monkeypatch.setattr(portal_module.vision, "click_match", lambda *a, **k: None)
     assert runner._select_portal_on_picker(1, threading.Event(), "Winter Rift") is True
-    assert searched == ["winter_rift_portal", "winter_rift", "summer_portal"]
+    assert searched == ["winter_rift_portal", "winter_rift", "portal_card"]
     assert runner.typed == ["Winter Rift"]
 
 
@@ -122,7 +120,7 @@ def test_a_card_outside_the_list_region_is_still_found(monkeypatch):
     def fake_wait_any(hwnd, names, **kwargs):
         if kwargs.get("region") is not None:
             return None, None                      # not where the box expects
-        return {"score": 0.96, "cx": 800, "cy": 250}, "summer_portal"
+        return {"score": 0.96, "cx": 800, "cy": 250}, "portal_card"
 
     monkeypatch.setattr(portal_module.vision, "wait_for_image_any", fake_wait_any)
     clicked = []
@@ -169,77 +167,28 @@ def test_select_portal_post_victory_uses_the_query(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# The card is already listed -> no search at all
+# The search is never skipped
 # ---------------------------------------------------------------------------
 
-def test_a_card_that_is_already_listed_skips_the_search(monkeypatch):
-    """One portal owned: the picker lists it straight away, so focusing the
-    box, clearing it and typing is wasted time."""
+def test_a_card_already_on_screen_does_not_skip_the_search(monkeypatch):
+    """The portals look alike in the picker -- only the name on the card
+    differs -- so a portal card that is already listed may be ANY portal.
+    Skipping the search for it clicked whichever one sat at the front and
+    never typed the name at all. No card is looked for until the name has
+    been typed."""
     runner = _runner()
-    card = {"score": 0.98, "cx": 290, "cy": 255}
-    runner._peek_portal_card = lambda hwnd, stop, candidates: (card, "summer_portal")
-    runner._focus_portal_search = lambda *a, **k: pytest.fail("searched although the card was listed")
-    clicked = []
-    monkeypatch.setattr(portal_module.vision, "click_match",
-                        lambda mouse, hwnd, match: clicked.append(match))
+    typed_at_each_look = []
 
-    assert runner._select_portal_on_picker(1, threading.Event(), "summer") is True
-    assert runner.typed == []
-    assert clicked == [card]
-    assert ("image", "portal_activate") in runner.clicked
-    assert any("skipping the search" in line for line in runner.logged)
-
-
-def test_the_peek_looks_at_the_list_briefly_then_the_whole_window_once(monkeypatch):
-    runner = _runner()
-    del runner._peek_portal_card  # the real one
-    waits, looks = [], []
-
-    def fake_wait_any(hwnd, names, region=None, timeout=None, **kwargs):
-        waits.append((region, timeout))
-        return None, None
-
-    def fake_find_any(hwnd, names, region=None, **kwargs):
-        looks.append(region)
-        return {"score": 0.95, "cx": 800, "cy": 250}, names[0]
+    def fake_wait_any(hwnd, names, **kwargs):
+        typed_at_each_look.append(list(runner.typed))
+        return {"score": 0.98, "cx": 290, "cy": 255}, "portal_card"
 
     monkeypatch.setattr(portal_module.vision, "wait_for_image_any", fake_wait_any)
-    monkeypatch.setattr(portal_module.vision, "find_image_any", fake_find_any)
-
-    match, name = runner._peek_portal_card(1, threading.Event(), ("summer_portal",))
-    assert match["cx"] == 800 and name == "summer_portal"
-    assert waits == [(runner._portal_list_region(), portal_module.PORTAL_CARD_PEEK_TIMEOUT)]
-    assert looks == [None], "one whole-window look, no waiting"
-
-
-def test_a_card_that_is_not_listed_still_gets_searched(monkeypatch):
-    """Several portals and the wanted one not in view: the peek misses and
-    the normal search runs exactly as before."""
-    runner = _runner()
-    del runner._peek_portal_card
-
-    def fake_wait_any(hwnd, names, timeout=None, **kwargs):
-        if timeout == portal_module.PORTAL_CARD_PEEK_TIMEOUT:
-            return None, None                       # not listed before typing
-        return {"score": 0.97, "cx": 500, "cy": 250}, "summer_portal"
-
-    monkeypatch.setattr(portal_module.vision, "wait_for_image_any", fake_wait_any)
-    monkeypatch.setattr(portal_module.vision, "find_image_any", lambda *a, **k: (None, None))
-    clicked = []
-    monkeypatch.setattr(portal_module.vision, "click_match",
-                        lambda mouse, hwnd, match: clicked.append(match["cx"]))
+    monkeypatch.setattr(portal_module.vision, "find_image_any",
+                        lambda *a, **k: pytest.fail("looked for a card before searching"))
+    monkeypatch.setattr(portal_module.vision, "click_match", lambda *a, **k: None)
 
     assert runner._select_portal_on_picker(1, threading.Event(), "summer") is True
     assert runner.typed == ["summer"]
-    assert clicked == [500]
-
-
-def test_the_peek_without_any_crop_leaves_the_reporting_to_the_search(monkeypatch):
-    runner = _runner()
-    del runner._peek_portal_card
-
-    def raise_missing(*a, **k):
-        raise portal_module.vision.TemplateNotFound("no such template")
-
-    monkeypatch.setattr(portal_module.vision, "wait_for_image_any", raise_missing)
-    assert runner._peek_portal_card(1, threading.Event(), ("summer_portal",)) == (None, None)
+    assert typed_at_each_look and all(t == ["summer"] for t in typed_at_each_look)
+    assert not hasattr(runner, "_peek_portal_card")

@@ -9,8 +9,8 @@ def test_event_kind_images_and_order_stay_in_sync():
     """_reach_event_kind_selected looks a kind up in EVENT_KIND_IMAGES, then
     validates it against EVENT_KIND_ORDER. A kind in one but not the other
     would fail mid-navigation, so the two have to be edited together -- this
-    fails the moment they drift, which is exactly what adding Portal Mode to
-    one and forgetting the other looks like."""
+    fails the moment they drift, which is exactly what adding a kind to one
+    and forgetting the other looks like."""
     assert set(rc.EVENT_KIND_IMAGES) == set(rc.EVENT_KIND_ORDER)
 
 
@@ -99,20 +99,22 @@ def test_reach_event_kind_selected_unknown_kind_backs_out():
     assert backs == [789]
 
 
-def test_reach_event_kind_selected_portal_not_implemented_fails_cleanly():
-    """Portal Mode points at a template that doesn't exist yet, so picking it
-    must fail cleanly (back out to lobby) rather than raise -- the runnable
-    kind is Infinite & Fishing until summer_event_portal is added."""
+def test_the_retired_portal_kind_is_not_an_event_kind_any_more():
+    """Portals run through the Portals task (Inventory) only. A saved Event >
+    Portal task is moved there on load (ui/app.js moveRetiredEventPortal); one
+    that somehow slips through must stop cleanly as an unknown kind, not
+    click the event's Portal Mode card."""
+    assert "portal" not in rc.EVENT_KIND_ORDER
+    assert "portal" not in rc.EVENT_KIND_IMAGES
+
     runner = object.__new__(MacroRunner)
-    clicked = []
-    backs = []
+    clicked, backs = [], []
     runner._set_status = lambda **kwargs: None
     runner._log = lambda message: None
-    runner._checkpoint = lambda stop_event: False
     runner._spam_back_until_gone = lambda hwnd, stop_event: backs.append(hwnd)
     runner._click_found_image = (
         lambda hwnd, image_name, timeout, stop_event: clicked.append(image_name) or None)
 
     assert runner._reach_event_kind_selected(hwnd=1234, stop_event=threading.Event(), kind="portal") is False
-    assert clicked == ["summer_event_portal"]
+    assert clicked == []
     assert backs == [1234]

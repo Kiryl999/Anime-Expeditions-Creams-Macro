@@ -1950,8 +1950,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # with a Start button -- there's no separate "Select Stage" confirm to
         # press (unlike Story/Raid/Infinite, which land on a stage screen that
         # needs nav_select_stage first). Skip the confirm and let the Start
-        # tail below click nav_start. See EventOps._select_summer_portal.
-        portal_ready = (mode == "portals") or (mode == "event" and task.get("stage") == "portal")
+        # tail below click nav_start. See PortalsOp._select_portal_on_picker.
+        portal_ready = mode == "portals"
         if portal_ready:
             # Every other mode gets here through a _click_and_verify_gone on
             # its confirm button, which waits for that click to land and
@@ -2166,13 +2166,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
     def _wants_portal_offer_watch(task: dict) -> bool:
         """Whether this task can be offered three new portals mid-run.
 
-        Both portal lead-ins can: the Portals mode (Inventory) and the Summer
-        event's Portal kind. Nothing else, so nothing else pays the search.
+        Only the Portals mode runs portals, so nothing else pays the search.
         """
-        mode = task.get("mode")
-        if mode == "portals":
-            return True
-        return mode == "event" and str(task.get("stage")) == "portal"
+        return task.get("mode") == "portals"
 
     @staticmethod
     def _wants_close_popup_watch(task: dict) -> bool:
@@ -2770,19 +2766,11 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # same stage directly, skipping the lobby/gamemode/map/stage
             # picks entirely (see _run_task_setup, which only runs once per
             # task, not once per repeat).
-            if (result == "win" and task.get("mode") == "event" and task.get("stage") == "portal"):
-                # Portal's result screen has "Select Portal" instead of "Repeat
-                # Stage" -- pick the next Summer portal (search -> tier ->
-                # Select) and continue the repeats from there.
-                self._set_status(action="Victory -- selecting the next portal...")
-                if not self._select_summer_portal(hwnd, stop_event, entry=False):
-                    return False
-                self._log("[Macro] Next Summer portal selected -- continuing this task's repeats.")
-                return True
             if (result == "win" and task.get("mode") == "portals"):
-                # The Portals mode's result screen also has "Select Portal" --
-                # pick the next portal using the task's Portal Name query and
-                # continue the repeats (see PortalsOp._select_portal_post_victory).
+                # A portal's result screen has "Select Portal" instead of
+                # "Repeat Stage" -- pick the next portal using the task's
+                # Portal Name query and continue the repeats (see
+                # PortalsOp._select_portal_post_victory).
                 self._set_status(action="Victory -- selecting the next portal...")
                 if not self._select_portal_post_victory(
                         hwnd, stop_event, task.get("map") or "summer"):

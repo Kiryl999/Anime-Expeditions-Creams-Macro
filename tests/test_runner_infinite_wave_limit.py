@@ -27,7 +27,7 @@ def _runner():
         ({"mode": "event", "stage": "infinite"}, 20),
         ({"mode": "event", "stage": "infinite", "infinite_wave_limit": "bad"}, 20),
         ({"mode": "event", "stage": "infinite", "infinite_wave_limit": 0}, 20),
-        # Portal Mode (and any legacy event stage) is not an Infinite run.
+        # The retired Portal kind (and any legacy event stage) is not an Infinite run.
         ({"mode": "event", "stage": "portal", "infinite_wave_limit": 40}, None),
         ({"mode": "event", "stage": "1", "infinite_wave_limit": 40}, None),
     ],

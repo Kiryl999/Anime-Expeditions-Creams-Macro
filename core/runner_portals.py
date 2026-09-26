@@ -1,12 +1,14 @@
 """Portals: a mode-agnostic way to search for and activate a portal.
 
-The Event kind reaches its portal picker through the event gamemode (see
-EventOps._select_summer_portal). This mixin is the OTHER lead-in: from the
-lobby, open the Inventory (nav_inv), switch to the Portals tab
-(normal_portals_nav), and land on the same portal picker. The picker
-selection itself is agnostic -- it drives off the PORTAL_SEARCHES regions
-(search box + the portal-card list) so it works however the picker was
-opened.
+From the lobby, open the Inventory (nav_inv), switch to the Portals tab
+(normal_portals_nav), and pick the task's portal on the picker there. The
+same picker opens again from the Victory screen's "Select Portal" button to
+queue up the next one. The picker selection drives off the PORTAL_SEARCHES
+regions (search box + the portal-card list), so it works however the picker
+was opened.
+
+The Summer event's own "Portal Mode" card used to be a second way in; it was
+retired, since every portal -- Summer or not -- is reachable from here.
 """
 import threading
 import time
@@ -47,10 +49,6 @@ class PortalsOp:
 
     def _focus_portal_search(self, hwnd, stop_event: threading.Event) -> bool:
         """Click into the portal picker's search box and empty it.
-
-        Shared by both lead-ins -- the Event kind (EventOps._select_summer_portal)
-        and the Inventory tab (_select_portal_on_picker) -- because both land
-        on the same picker screen and both got this wrong in their own way.
 
         Aiming. A saved point (Settings > Debug > Macro Coordinates > "Portal
         Search") wins outright. Otherwise the shipped `portal_search` crop is
@@ -153,83 +151,60 @@ class PortalsOp:
             self._log(f"[Macro] {exc}")
         return None, None
 
-    def _peek_portal_card(self, hwnd, stop_event: threading.Event, candidates: tuple):
-        """Look for the wanted portal card before typing a search.
-
-        The search exists to filter a list with several portals in it. With
-        only one portal owned -- or the wanted one already at the front --
-        the picker lists the card straight away, and focusing the box,
-        clearing it, typing and waiting for the filter is all wasted time
-        (and two more places for a pick to go wrong). The card crop is
-        tier-specific, so a hit here is the portal that was asked for, never
-        just whichever one happens to come first.
-
-        Brief on purpose: the list region gets PORTAL_CARD_PEEK_TIMEOUT, then
-        the whole window gets one look, since the region does not fit every
-        layout (see _find_portal_card). A miss costs about that long before
-        the normal search runs.
-
-        Returns (match, name), or (None, None) when the card is not listed.
-        """
-        try:
-            match, name = vision.wait_for_image_any(
-                hwnd, candidates, region=self._portal_list_region(),
-                timeout=PORTAL_CARD_PEEK_TIMEOUT, stop_event=stop_event)
-            if match is None and not (stop_event is not None and stop_event.is_set()):
-                match, name = vision.find_image_any(hwnd, candidates)
-        except vision.TemplateNotFound:
-            # No crop at all -- the search that follows reports that properly.
-            return None, None
-        return match, name
-
     def _select_portal_on_picker(self, hwnd, stop_event: threading.Event,
                                  query: str = "summer") -> bool:
         """Search an already-open portal picker for `query`, click the matching
         card, then activate -- driven by the PORTAL_SEARCHES regions (search
         box + portal-card list) so it's agnostic to how the picker was
-        reached (event gamemode, or the Inventory Portals tab). `query` is
-        both what gets typed into the search box and what names the card crop
-        to look for (see the candidate list below).
+        reached (the Inventory Portals tab, or the Victory screen's Select
+        Portal). `query` is what gets typed into the search box, and it also
+        names the card crop to look for first (see the candidate list below).
+
+        The search is typed EVERY time, never skipped for a card that already
+        looks listed. The portals look alike in the picker -- the same frame
+        and art, only the name printed on the card differs -- so an image
+        match cannot tell one portal from another reliably (several shipped
+        PORTAL_CARD_IMAGE crops show no name at all). The game's own search
+        filters by that name; once it has, whichever portal card is left is
+        the one that was asked for.
         """
         self._set_status(action="Selecting portal...")
 
-        # The query drives WHICH crop is looked for, not just what gets typed:
-        # "<query>_portal" then "<query>", so running a portal other than
-        # Summer is just adding your own crop under that name (Settings >
-        # General > Image Manager). summer_portal stays last as the shipped
-        # fallback, so an unnamed/new portal still matches the Summer card.
+        # "<query>_portal" then "<query>" first, so a portal whose card needs
+        # its own crop can get one (Settings > General > Image Manager).
+        # PORTAL_CARD_IMAGE stays last as the generic card for every portal,
+        # which is only safe because the list has been filtered by the typed
+        # name by the time it is looked for.
         slug = "".join(c if c.isalnum() else "_" for c in query.strip().lower()).strip("_")
-        candidates = [n for n in (f"{slug}_portal", slug, "summer_portal") if n]
+        candidates = [n for n in (f"{slug}_portal", slug, PORTAL_CARD_IMAGE) if n]
         candidates = list(dict.fromkeys(candidates))  # de-dup, keep priority order
 
-        # Already listed (one portal owned, or this one at the front)? Then
-        # there is nothing to search for -- see _peek_portal_card.
-        match, found_name = self._peek_portal_card(hwnd, stop_event, tuple(candidates))
-        if match is not None:
-            self._log(f'[Macro] The "{query}" portal card is already listed ("{found_name}", '
-                      f'score {match["score"]:.2f}) -- skipping the search and clicking it.')
-        else:
-            if self._checkpoint(stop_event):
-                return False
-            # Focus + clear the search box, then type. Was a blind click on
-            # the region centre with no check that anything was hit at all.
-            if not self._focus_portal_search(hwnd, stop_event):
-                self._spam_back_until_gone(hwnd, stop_event)
-                return False
-            self._keyboard.type_text(query)
-            self._interruptible_sleep(SETTLE_DELAY, stop_event)
-            if self._checkpoint(stop_event):
-                return False
+        # Focus + clear the search box, then type. Was a blind click on the
+        # region centre with no check that anything was hit at all.
+        if not self._focus_portal_search(hwnd, stop_event):
+            self._spam_back_until_gone(hwnd, stop_event)
+            return False
+        self._log(f'[Macro] Searching the portal picker for "{query}".')
+        self._keyboard.type_text(query)
+        self._interruptible_sleep(SETTLE_DELAY, stop_event)
+        if self._checkpoint(stop_event):
+            return False
 
-            match, found_name = self._find_portal_card(hwnd, stop_event, tuple(candidates))
-            if match is None:
-                self._log(f'[Macro] No "{query}" portal card found, on the picker or anywhere on screen '
-                          f'(searched for {", ".join(candidates)}). If the card is visible, add a crop of '
-                          f'it under one of those names via Settings > General > Image Manager.')
-                self._spam_back_until_gone(hwnd, stop_event)
-                return False
-            self._log(f'[Macro] Found the "{query}" portal card via "{found_name}" '
-                      f'(score {match["score"]:.2f}) -- clicking it.')
+        match, found_name = self._find_portal_card(hwnd, stop_event, tuple(candidates))
+        if match is None:
+            self._log(f'[Macro] No "{query}" portal card found, on the picker or anywhere on screen '
+                      f'(searched for {", ".join(candidates)}). Check that the Portal Name matches the '
+                      f'name on the portal. If the card is visible, add a crop of it to '
+                      f'"{PORTAL_CARD_IMAGE}" via Settings > General > Image Manager -- best just the '
+                      f'portal art without its name, so the one crop fits every portal.')
+            # Taken before backing out, while the filtered list is still up:
+            # it shows at once whether the search matched nothing, the text
+            # never reached the box, or the card is there and no crop fits.
+            self._save_debug_screenshot_unconditional(hwnd, "portal_card_not_found")
+            self._spam_back_until_gone(hwnd, stop_event)
+            return False
+        self._log(f'[Macro] Found the "{query}" portal card via "{found_name}" '
+                  f'(score {match["score"]:.2f}) -- clicking it.')
         vision.click_match(self._mouse, hwnd, match)
         if self._checkpoint(stop_event):
             return False
@@ -253,9 +228,8 @@ class PortalsOp:
     def _select_portal_post_victory(self, hwnd, stop_event: threading.Event,
                                     query: str = "summer") -> bool:
         """Post-victory: click the Victory screen's "Select Portal" button,
-        then pick the next portal with `query` -- the Portals-mode equivalent
-        of EventOps._select_summer_portal(entry=False), reusing the agnostic
-        picker (see _select_portal_on_picker).
+        then pick the next portal with `query` on the same picker the entry
+        uses (see _select_portal_on_picker).
         """
         self._set_status(action="Clicking Select Portal...")
         if self._click_found_image(hwnd, "select_new_portal", EVENT_SCREEN_TIMEOUT, stop_event) is None:

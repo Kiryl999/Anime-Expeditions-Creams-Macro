@@ -99,16 +99,15 @@ def test_a_missing_search_box_fails_loudly_and_says_what_to_do():
     assert not any(e[0] in ("tap", "type", "combo") for e in runner.events)
 
 
-def test_both_portal_lead_ins_go_through_it(monkeypatch):
-    """The Event kind and the Inventory tab reach the same picker; a fix in
-    one that skips the other is how this drifted apart in the first place."""
-    import core.runner_event as event_module
+def test_the_picker_goes_through_it(monkeypatch):
+    """The picker's own search must use this, not a Ctrl+A of its own -- a
+    second copy of the search is how this drifted apart in the first place
+    (the retired Event > Portal kind had one)."""
     import inspect
 
-    for func in (portal_module.PortalsOp._select_portal_on_picker,
-                 event_module.EventOps._select_summer_portal):
-        assert "_focus_portal_search" in inspect.getsource(func)
-        assert "VK_CONTROL" not in inspect.getsource(func)
+    source = inspect.getsource(portal_module.PortalsOp._select_portal_on_picker)
+    assert "_focus_portal_search" in source
+    assert "VK_CONTROL" not in source
 
 
 # ---------------------------------------------------------------------------
@@ -160,11 +159,11 @@ def test_the_card_search_looks_in_the_saved_box(monkeypatch):
 
     def fake_wait_any(hwnd, names, **kwargs):
         regions.append(kwargs.get("region"))
-        return {"score": 0.96, "cx": 700, "cy": 250}, "summer_portal"
+        return {"score": 0.96, "cx": 700, "cy": 250}, "portal_card"
 
     monkeypatch.setattr(portal_module.vision, "wait_for_image_any", fake_wait_any)
 
-    match, name = runner._find_portal_card(1, threading.Event(), ("summer_portal",))
+    match, name = runner._find_portal_card(1, threading.Event(), ("portal_card",))
     assert match is not None
     assert regions == [(533, 208, 343, 88)], "found on the first pass, no widening"
     assert not any("outside the searched list area" in line for line in runner.logged)

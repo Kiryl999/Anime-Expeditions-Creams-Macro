@@ -1149,7 +1149,7 @@ class BlockOps:
             # Story share, so only the Acts that actually need a different
             # walk need their own default_walk_paths entry. Event stays in
             # this branch but no longer has Acts (its stage names a kind,
-            # 'infinite'/'portal'), so it always takes the fallback -- the
+            # 'infinite'), so it always takes the fallback -- the
             # leftover "Event Act1"/"Event Act2" entries in
             # Assets/default_walk_paths.json were the retired Villian
             # Invasion's and nothing looks them up any more.

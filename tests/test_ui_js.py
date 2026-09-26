@@ -489,6 +489,7 @@ const world = (data) => new Function('data', `
   } };
   ${extract('importCustomPaths')}
   ${extract('normalizeExtractAfter')}
+  ${extract('moveRetiredEventPortal')}
   ${extract('importCustomRecordings')}
   ${extract('importTasks')}
   return { importTasks, saved, restoredPaths, logs, cards: () => taskCards };
@@ -817,6 +818,7 @@ global.pywebview = { api: {
   save_template: async (n, b) => { saved[n] = b; },
 }};
 eval(extract('normalizeExtractAfter'));
+eval(extract('moveRetiredEventPortal'));
 eval(extract('importTasks'));
 importTasks().then(() => console.log(JSON.stringify({
   macrosSaved: Object.keys(saved), tasks: taskCards.length,
@@ -1619,10 +1621,11 @@ def test_detect_controls_expose_live_test_button(tmp_path):
 # Event stage migration: the queue survives Villian Invasion going away
 # ---------------------------------------------------------------------------
 # Event used to mean Villian Invasion, whose stage was an Act number ('1'-'4').
-# That event is gone and the stage now names a Summer event kind
-# ('infinite'/'portal'). An already-saved Act task keeps a stage the picker has
-# no option for, and the runner stops the whole run on it ("Unknown Event kind
-# \"4\""), so refreshTaskQueue has to migrate it on load.
+# That event is gone and the stage now names a Summer event kind ('infinite').
+# An already-saved Act task keeps a stage the picker has no option for, and the
+# runner stops the whole run on it ("Unknown Event kind \"4\""), so
+# refreshTaskQueue has to migrate it on load. The same goes for the retired
+# Event > Portal kind, which moves to the Portals task instead.
 _EVENT_MIGRATION_WORLD = """
 const logs = [];
 global.addLog = m => logs.push(m);
@@ -1636,14 +1639,16 @@ global.newTaskId = () => 't1';
 global.DEFAULT_INFINITE_WAVE_LIMIT = 20;
 global.DEFAULT_FISHING_INTERVAL = 6;
 global.MAX_EXTRACT_AFTER = 20;
-global.TASK_DATA = { story: { maps: ['Rose'] }, event: { stages: ['infinite', 'portal'] } };
+global.TASK_DATA = { story: { maps: ['Rose'] }, event: { stages: ['infinite'] }, portals: { isPortals: true } };
 global.taskCards = [];
 global.pywebview = { api: { get_tasks: async () => %s } };
 eval(extract('defaultTask'));
 eval(extract('normalizeExtractAfter'));
+eval(extract('moveRetiredEventPortal'));
 eval(extract('refreshTaskQueue'));
 refreshTaskQueue().then(() => console.log(JSON.stringify({
-  stages: taskCards.map(t => t.stage), logs })));
+  stages: taskCards.map(t => t.stage), modes: taskCards.map(t => t.mode),
+  maps: taskCards.map(t => t.map), logs })));
 """
 
 
@@ -1660,7 +1665,19 @@ def test_old_villian_invasion_act_tasks_migrate_to_an_event_kind(saved_stage, tm
 
 
 def test_event_tasks_already_on_a_kind_are_left_alone(tmp_path):
+    tasks = json.dumps([{"id": "a", "mode": "event", "map": "Event", "stage": "infinite"}])
+    out = run_js(_EVENT_MIGRATION_WORLD % tasks, tmp_path)
+    assert out["stages"] == ["infinite"]
+    assert out["modes"] == ["event"]
+    assert not any("Villian Invasion" in line or "Portal" in line for line in out["logs"])
+
+
+def test_retired_event_portal_tasks_move_to_the_portals_task(tmp_path):
+    """Not to Infinite & Fishing, which the stage migration above would have
+    made of it -- a very different run to start without being asked."""
     tasks = json.dumps([{"id": "a", "mode": "event", "map": "Event", "stage": "portal"}])
     out = run_js(_EVENT_MIGRATION_WORLD % tasks, tmp_path)
-    assert out["stages"] == ["portal"]
+    assert out["modes"] == ["portals"]
+    assert out["maps"] == ["summer"]
+    assert any("Event > Portal" in line for line in out["logs"]), "the move happened silently"
     assert not any("Villian Invasion" in line for line in out["logs"])

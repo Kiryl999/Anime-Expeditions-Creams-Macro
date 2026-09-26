@@ -2181,15 +2181,15 @@ const TASK_DATA = {
   event: {
     label: 'Event',
     // Event has its own lobby entry (nav_event -> event_gamemode -> kind
-    // card), no map carousel and no difficulty picker -- just one of the
-    // event kinds (Infinite & Fishing, or Portal Mode), then Solo/
-    // Matchmaking. Stored in `stage` (values 'infinite'/'portal') the same
-    // way Raid stores its Acts, so it reuses the existing stage/act
-    // plumbing. The chosen kind is what runner._reach_event_kind_selected
-    // clicks. Mirrors core.runner_constants' EVENT_KIND_ORDER. Portal Mode
-    // additionally picks + activates a portal on the way in, and picks the
-    // next one after each win (see runner_event._select_summer_portal).
-    stages: ['infinite', 'portal'],
+    // card), no map carousel and no difficulty picker -- just the event kind
+    // (Infinite & Fishing), then Solo/Matchmaking. Stored in `stage` (value
+    // 'infinite') the same way Raid stores its Acts, so it reuses the
+    // existing stage/act plumbing. The chosen kind is what
+    // runner._reach_event_kind_selected clicks. Mirrors core.runner_constants'
+    // EVENT_KIND_ORDER. The event's Portal Mode kind was retired -- portals
+    // run through the Portals task below, and refreshTaskQueue moves old
+    // Event > Portal tasks over to it.
+    stages: ['infinite'],
     isEvent: true,
   },
   portals: {
@@ -2198,7 +2198,8 @@ const TASK_DATA = {
     // used as the SEARCH QUERY in the Inventory -> Portals tab (see
     // core.runner_portals / PortalsOp). Stored in `map`, so it reads
     // straight through to logs/status. No map carousel or difficulty -- the
-    // portal name IS the selection.
+    // portal name IS the selection. It is typed on every pick: the portals
+    // look alike in the picker and only differ by the name on the card.
     isPortals: true,
   },
   tournament: {
@@ -2263,6 +2264,19 @@ function normalizeExtractAfter(value) {
   const number = Number(text);
   if (!Number.isFinite(number) || !Number.isInteger(number) || number < 0) return '1';
   return String(Math.min(number, MAX_EXTRACT_AFTER));
+}
+
+// Event > Portal was retired in favour of the Portals task, which reaches the
+// same (Summer) portals from the Inventory. A task saved on it -- in the queue,
+// a preset or an export -- is moved over rather than left to fail at "Unknown
+// Event kind", or to be turned into an Infinite & Fishing run by the queue's
+// stage migration, a very different thing to start silently. Returns whether
+// the task was moved, so callers can say so.
+function moveRetiredEventPortal(t) {
+  if (t.mode !== 'event' || String(t.stage) !== 'portal') return false;
+  t.mode = 'portals';
+  t.map = 'summer';
+  return true;
 }
 
 function findTask(id) { return taskCards.find(t => t.id === id); }
@@ -2531,9 +2545,11 @@ async function importTasks() {
     }
   } catch (e) {}
   let added = 0;
+  let movedPortals = 0;
   for (const t of data.tasks) {
     const newTask = { ...defaultTask(), ...t, id: newTaskId() };
     newTask.extract_after = normalizeExtractAfter(newTask.extract_after);
+    if (moveRetiredEventPortal(newTask)) movedPortals++;
     taskCards.push(newTask);
     enteringTaskIds.add(newTask.id);
     added++;
@@ -2543,6 +2559,9 @@ async function importTasks() {
   renderTaskBuilder();
   saveTaskQueue();
   addLog(`[Task] Imported ${added} task(s)${tplAdded ? `, ${tplAdded} macro template(s)` : ''}${pathAdded ? `, ${pathAdded} custom path(s)` : ''}${recordingAdded ? `, and ${recordingAdded} recording(s)` : ''}.`);
+  if (movedPortals) {
+    addLog(`[Task] Moved ${movedPortals} imported Event > Portal task(s) to the Portals task (Portal Name "summer").`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2622,10 +2641,15 @@ async function loadTaskPreset() {
            + `entries) -- the queue was left as it was.`);
     return;
   }
+  let movedPortals = 0;
   usable.forEach(t => {
     t.stage = String(t.stage);
     t.extract_after = normalizeExtractAfter(t.extract_after);
+    if (moveRetiredEventPortal(t)) movedPortals++;
   });
+  if (movedPortals) {
+    addLog(`[Task] Moved ${movedPortals} Event > Portal task(s) in "${name}" to the Portals task (Portal Name "summer").`);
+  }
 
   // Replaces the queue rather than appending -- Import appends (you're
   // merging someone else's tasks into yours), but loading a preset means
@@ -2782,7 +2806,7 @@ function taskSummary(t) {
   } else if (t.mode === 'expedition' || t.mode === 'tournament') {
     title += ` · ${t.map}`;
   } else if (t.mode === 'event') {
-    title += ` · ${t.stage === 'infinite' ? 'Infinite' : 'Portal'}`;
+    title += ' · Infinite';
   } else if (t.mode === 'portals') {
     title += ` · ${t.map || 'summer'}`;
   }
@@ -2878,14 +2902,14 @@ function renderTaskBuilder() {
   } else if (t.mode === 'expedition') {
     fields.push(field('Expedition', sel('map', d.maps, null, 'Select Expedition map')));
   } else if (t.mode === 'event') {
-    fields.push(field('Map', sel('stage', d.stages, s => s === 'infinite' ? 'Infinite' : 'Portal',
-      'Select the event to enter: Infinite & Fishing, or Portal Mode'),
+    fields.push(field('Map', sel('stage', d.stages, s => s === 'infinite' ? 'Infinite' : s,
+      'The event to enter: Infinite & Fishing (portals run from the Portals task)'),
       'Select the event to enter'));
   } else if (t.mode === 'portals') {
     fields.push(field('Portal Name', `<input type="text" class="block-input" style="width:130px;"
       value="${escapeHtml(t.map ?? 'summer')}" placeholder="e.g. summer"
       oninput="setTaskProp('${t.id}', 'map', this.value)">`,
-      'The portal to search for in the Inventory > Portals tab (the search query, e.g. "summer")'));
+      'The portal to run, as printed on its card -- typed into the Inventory > Portals search on every pick (e.g. "summer")'));
   } else if (t.mode === 'tournament') {
     fields.push(field('Type', sel('map', d.maps, null, 'Select the Tournament type to enter'), 'Select the Tournament type to enter'));
   } else if (t.mode === 'tower') {
@@ -2942,8 +2966,7 @@ function renderTaskBuilder() {
       ${taskTemplates.map(n => `<option value="${escapeHtml(n)}" ${n === t.macro ? 'selected' : ''}>&#9654; ${escapeHtml(n)}</option>`).join('')}
     </select>`;
   // Infinite & Fishing runs unlimited waves, so it needs an Autoplay Macro
-  // Operation to keep going; Portal Mode is a normal stage and keeps the
-  // plain label.
+  // Operation to keep going; every other mode keeps the plain label.
   const macroLabel = (t.mode === 'event' && t.stage === 'infinite')
     ? 'Macro Operation (Must be Autoplay)' : 'Macro Operation';
   fields.push(field(macroLabel, macroSel, 'Select a pre-start placement macro template'));
@@ -3009,6 +3032,7 @@ async function refreshTaskQueue() {
     const dropped = rawTasks.filter(t => !TASK_DATA[t.mode]).length;
     let repairedExtractAfter = 0;
     let migratedEventStages = 0;
+    let migratedEventPortals = 0;
     taskCards = rawTasks.filter(t => TASK_DATA[t.mode]).map(saved => {
       const t = { ...defaultTask(), ...saved };
       if (t.team == null) t.team = '';
@@ -3022,18 +3046,21 @@ async function refreshTaskQueue() {
         t.stage = t.difficulty;
         t.difficulty = 'Normal';
       }
+      // Before the stage check below, which would otherwise turn it into an
+      // Infinite & Fishing run -- see moveRetiredEventPortal.
+      if (moveRetiredEventPortal(t)) migratedEventPortals++;
       // Event used to be Villian Invasion, whose stage was an Act number
       // ('1'-'4'). That event is gone; the stage now names the Summer event
-      // kind ('infinite'/'portal'). Without this an old task keeps a stage
-      // the picker has no option for and stops the run at "Unknown Event
-      // kind" -- migrate it to the default kind instead.
+      // kind ('infinite'). Without this an old task keeps a stage the picker
+      // has no option for and stops the run at "Unknown Event kind" --
+      // migrate it to the default kind instead.
       if (t.mode === 'event' && !TASK_DATA.event.stages.includes(t.stage)) {
         t.stage = TASK_DATA.event.stages[0];
         migratedEventStages++;
       }
       return t;
     });
-    if (dropped || repairedExtractAfter || migratedEventStages) {
+    if (dropped || repairedExtractAfter || migratedEventStages || migratedEventPortals) {
       if (dropped) {
         addLog(`[Task] Removed ${dropped} task(s) with an unrecognized mode (e.g. old Challenge/Bounty entries).`);
       }
@@ -3042,6 +3069,9 @@ async function refreshTaskQueue() {
       }
       if (migratedEventStages) {
         addLog(`[Task] Switched ${migratedEventStages} Event task(s) off the retired Villian Invasion Acts -- check the Event picker.`);
+      }
+      if (migratedEventPortals) {
+        addLog(`[Task] Moved ${migratedEventPortals} Event > Portal task(s) to the Portals task (Portal Name "summer") -- Event > Portal is gone.`);
       }
       saveTaskQueue();
     }
@@ -6186,13 +6216,12 @@ const IMAGE_DESCRIPTIONS = {
   stage_infinite_large: "A larger crop of the Infinite stage card.",
   stage_infinite_selected: "The Infinite stage card in its SELECTED state.",
   summer_nav: "The lobby 'Event' button for the Summer event -- Event mode's own entry (not under Play).",
-  summer_event_gamemode: "The Summer event's gamemode card -- opens the Infinite & Fishing / Portal Mode picker.",
+  summer_event_gamemode: "The Summer event's gamemode card -- opens the event kind picker (Infinite & Fishing).",
   summer_event_infinite: "The 'Infinite & Fishing' event card -- the event kind we run.",
-  summer_event_portal: "The 'Portal Mode' event card (Tiered & Secret Portals).",
   nav_inv: "The lobby's Inventory button -- the lead-in to the Portals tab.",
   normal_portals_nav: "The Inventory's Portals tab.",
   portal_search: "The portal picker's search box.",
-  summer_portal: "A Summer portal card in the portal picker's list.",
+  portal_card: "Any portal card in the portal picker's list -- best cropped from the portal art without its name, so one crop fits every portal. Looked for only after the Portal Name has been searched, so the search is what picks which portal.",
   portal_activate: "The portal picker's confirm button ('Activate Portal' on entry, 'Select' post-victory).",
   select_new_portal: "The Victory screen's 'Select Portal' button (Portal runs get this instead of Repeat Stage).",
   team: "The Team Loadout panel (opened with H).",

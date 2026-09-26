@@ -44,18 +44,14 @@ def _runner(monkeypatch, frames):
 # Which tasks watch for it
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("task", [
-    {"mode": "portals", "map": "summer"},
-    {"mode": "event", "stage": "portal"},
-])
-def test_both_portal_lead_ins_watch_for_the_offer(task):
-    """The Inventory Portals mode and the Summer event's Portal kind both run
-    portals, so both get offered new ones."""
-    assert MacroRunner._wants_portal_offer_watch(task)
+def test_the_portals_mode_watches_for_the_offer():
+    """The Portals mode runs portals, so it gets offered new ones."""
+    assert MacroRunner._wants_portal_offer_watch({"mode": "portals", "map": "summer"})
 
 
 @pytest.mark.parametrize("task", [
-    {"mode": "event", "stage": "infinite"},   # the event's OTHER kind
+    {"mode": "event", "stage": "infinite"},
+    {"mode": "event", "stage": "portal"},     # retired; moved to Portals on load
     {"mode": "story", "stage": "3"},
     {"mode": "raid", "map": "Snowy Castle", "stage": "3"},
     {"mode": "expedition"},
