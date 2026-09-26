@@ -165,6 +165,10 @@ def test_regular_challenge_finishes_slots_1_2_3_in_one_ordered_pass():
         ("Tornb - Act 1", "King's Tomb"),
         ("Flovver Forest", "Flower Forest"),
         ("Eest Town - Act 1", "East Town"),
+        ("Crirnson Shore - Act 2", "Crimson Shore"),
+        ("Flarning Monastery - Act 1", "Flaming Monastery"),
+        ("Flamlng Monaslery - Act 2", "Flaming Monastery"),
+        ("Mcnastery", "Flaming Monastery"),
     ),
 )
 def test_challenge_map_ocr_uses_unique_map_words(monkeypatch, ocr_text, expected):

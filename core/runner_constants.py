@@ -515,7 +515,7 @@ EXPEDITION_MAP_IMAGES = {
 # scrolling map-CARD search used to pick a map by hand -- these instead
 # confirm which map is already showing). Mirrors main.py's
 # CHALLENGE_STORY_MAPS and ui/app.js's TASK_DATA.story.maps.
-CHALLENGE_STORY_MAPS = ["School Grounds", "Rose Kingdom", "Fairy King Forest", "King's Tomb", "Flower Forest", "East Town", "Crimson Shore"]
+CHALLENGE_STORY_MAPS = ["School Grounds", "Rose Kingdom", "Fairy King Forest", "King's Tomb", "Flower Forest", "East Town", "Crimson Shore", "Flaming Monastery"]
 # Daily Challenge shows its map as a ~10px label rather than the art the
 # image search above needs, so _detect_challenge_map_ocr falls back to
 # reading it. One distinctive lowercase word per map, fuzzy-matched against
@@ -526,6 +526,11 @@ CHALLENGE_STORY_MAPS = ["School Grounds", "Rose Kingdom", "Fairy King Forest", "
 # both below the runner-up margin and makes King's Tomb undetectable as
 # collateral (test_challenge_map_ocr_uses_unique_map_words covers that read).
 # Pick the word that no other map shares, not just any word from the name.
+# Flaming Monastery is keyed on "monastery", not "flaming": "flaming" shares
+# its "fl"/"a" with "flower" and "fairy", and at 7 letters a two-glyph
+# misread ("Mcnastery") already drops it under the runner-up margin, where
+# the 9-letter word still clears it -- and it leaves every other map's margin
+# where it was.
 CHALLENGE_MAP_OCR_ALIASES = {
     "School Grounds": "grounds",
     "Rose Kingdom": "kingdom",
@@ -534,6 +539,7 @@ CHALLENGE_MAP_OCR_ALIASES = {
     "Flower Forest": "flower",
     "East Town": "east",
     "Crimson Shore": "crimson",
+    "Flaming Monastery": "monastery",
 }
 # Words the map label carries that never identify a map ("Grounds - Act 1").
 # Scored against an alias they are just noise that can out-rank the real

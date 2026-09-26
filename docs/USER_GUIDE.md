@@ -219,15 +219,17 @@ for each map that may appear. Challenge automation runs before the normal task
 queue.
 
 Regular Challenge picks the map for you, so every Story map needs its own
-Macro Operation assigned -- including **Crimson Shore**, the 7th map. Two
-separate crops are involved and they come from different screens:
+Macro Operation assigned -- including **Crimson Shore** (the 7th map) and
+**Flaming Monastery** (the 8th). Auto Challenge and Auto Bounty will not start
+while any Story map is left without one. Each map needs two separate crops,
+and they come from different screens:
 
 | Folder | Cropped from | Used for |
 | --- | --- | --- |
-| `Assets/maps/Crimson Shore` | the Play > Story card carousel | picking the map yourself in a task |
-| `Assets/ui/Crimson Shore` | the in-battle HUD, once you are on the map | Regular Challenge recognizing which map it landed on |
+| `Assets/maps/<Map>` | the Play > Story card carousel | picking the map yourself in a task |
+| `Assets/ui/<Map>` | the in-battle HUD, once you are on the map | Regular Challenge recognizing which map it landed on |
 
-Without the second one, Crimson Shore is skipped by the image search and
+Without the second one, the map is skipped by the image search and
 detection falls back to reading the map label with OCR. The other maps keep
 matching normally -- a map with no crop is skipped, not fatal -- but the OCR
 path is the slower and less reliable of the two.
