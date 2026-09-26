@@ -77,16 +77,34 @@ def test_ctrl_is_never_pressed():
     assert keys.VK_CONTROL not in [e[1] for e in runner.events if e[0] == "tap"]
 
 
-def test_the_field_is_cleared_from_the_start_of_the_text():
-    """HOME first: a click can land mid-text, and backspaces alone would then
-    leave whatever sat to the right of the cursor in the box."""
+def test_the_field_is_cleared_from_the_end_of_the_text():
+    """END first: a click can land mid-text, and backspace deletes to the LEFT
+    of the cursor -- from the end it takes everything. It used to be HOME,
+    which parks the cursor where backspace deletes nothing at all."""
     runner = _runner()
 
     runner._focus_portal_search(1, threading.Event())
 
     taps = [e[1] for e in runner.events if e[0] == "tap"]
-    assert taps[0] == keys.VK_HOME
+    assert taps[0] == keys.VK_END
+    assert keys.VK_HOME not in taps
     assert taps.count(keys.VK_BACK) == PORTAL_SEARCH_CLEAR_KEYS
+
+
+def test_clearing_pays_the_macro_speed_pause_once_not_per_key(monkeypatch):
+    """Each paced tap waits out the Macro Speed delay. Paced, the 33 clearing
+    keys waited it 33 times -- about 20s of a search box that looked stuck at
+    600ms, reported live on a Remote Desktop setup. The keys go out unpaced,
+    with one pause after them, the way type_text handles its characters."""
+    runner = _runner()
+    paced, pauses = [], []
+    runner._keyboard.tap = lambda vk, **k: paced.append(k.get("pace", True))
+    monkeypatch.setattr(portal_module.pacing, "action_pause", lambda: pauses.append(1))
+
+    assert runner._focus_portal_search(1, threading.Event()) is True
+    assert len(paced) == PORTAL_SEARCH_CLEAR_KEYS + 1
+    assert not any(paced), "a clearing key was sent paced"
+    assert pauses == [1]
 
 
 def test_a_missing_search_box_fails_loudly_and_says_what_to_do():

@@ -14,6 +14,7 @@ import threading
 import time
 
 from . import keys
+from . import pacing
 from . import vision
 from .runner_constants import *  # noqa: F401,F403 -- the shared constants namespace
 
@@ -60,11 +61,13 @@ class PortalsOp:
         real field, which is exactly why the override exists rather than a
         different hardcoded number.
 
-        Clearing. HOME, then backspaces -- NOT the Ctrl+A + Delete used by
+        Clearing. END, then backspaces -- NOT the Ctrl+A + Delete used by
         every other input in this codebase. Those type into a box the click
         certainly landed in; this one can miss, and a Ctrl that misses reaches
         Roblox, where it toggles the camera and leaves the rest of the run
-        fighting the view. Backspace and HOME are inert when they miss.
+        fighting the view. Backspace and END are inert when they miss. END,
+        not HOME: backspace deletes to the LEFT of the cursor, so it has to
+        start from the end of the text.
         """
         point = self._optional_cxy("portal_search")
         if point is not None:
@@ -81,9 +84,15 @@ class PortalsOp:
         if self._checkpoint(stop_event):
             return False
 
-        self._keyboard.tap(keys.VK_HOME)
+        # Unpaced per key, one Macro Speed pause after the lot -- the same
+        # rule Keyboard.type_text follows per character. Paced, these 33 keys
+        # paid the pause 33 times -- ~20s of an idle-looking search box at a
+        # 600ms Macro Speed (reported live on a Remote Desktop setup) -- for
+        # keys a text box takes as fast as they come.
+        self._keyboard.tap(keys.VK_END, pace=False)
         for _ in range(PORTAL_SEARCH_CLEAR_KEYS):
-            self._keyboard.tap(keys.VK_BACK)
+            self._keyboard.tap(keys.VK_BACK, pace=False)
+        pacing.action_pause()
         return True
 
     def _portal_list_region(self):

@@ -72,12 +72,12 @@ def test_the_name_is_typed_before_any_card_is_looked_for(monkeypatch):
 
 
 def test_the_box_is_cleared_without_ever_pressing_ctrl(monkeypatch):
-    """The box is cleared with HOME + backspaces, never Ctrl+A.
+    """The box is cleared with END + backspaces, never Ctrl+A.
 
     The click into it is aimed at a crop of the placeholder word "Search...",
     so it can miss -- and a Ctrl that misses reaches Roblox, where it toggles
     the camera and leaves the rest of the run fighting the view. Reported
-    live. Backspace and HOME do nothing when they miss.
+    live. Backspace and END do nothing when they miss.
     """
     runner = _runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
@@ -86,7 +86,7 @@ def test_the_box_is_cleared_without_ever_pressing_ctrl(monkeypatch):
     assert not any(call[0] == "combo" for call in runner.clicked), "no key combo may be sent here"
     taps = [call[1] for call in runner.clicked if call[0] == "tap"]
     assert runner_module.keys.VK_CONTROL not in taps
-    assert taps and taps[0] == runner_module.keys.VK_HOME, "HOME first, so backspaces clear the whole field"
+    assert taps and taps[0] == runner_module.keys.VK_END, "END first, so backspaces clear the whole field"
     assert taps.count(runner_module.keys.VK_BACK) >= len("summer")
     assert runner.typed == ["summer"]
 

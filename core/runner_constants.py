@@ -420,9 +420,11 @@ PORTAL_SEARCHES = {
 # box the click definitely landed in, whereas the portal box is aimed at a
 # crop of the word "Search..." and can miss -- and a Ctrl that misses goes
 # to Roblox, which toggles the camera and leaves the whole run fighting the
-# view. Backspace is inert when it misses. HOME is pressed first so the
-# cursor is left of everything and the backspaces clear the whole field
-# regardless of where in the text the click landed.
+# view. Backspace is inert when it misses. END is pressed first so the
+# cursor is RIGHT of everything -- backspace deletes leftwards, so the
+# backspaces clear the whole field regardless of where in the text the click
+# landed. (It was HOME, which parks the cursor where backspace deletes
+# nothing at all.)
 PORTAL_SEARCH_CLEAR_KEYS = 32  # longest plausible leftover query, with room to spare
 # How long to wait for a portal card to appear after the search query is
 # typed. Was a single one-shot look, which lost to a picker still filtering
