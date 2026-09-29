@@ -1174,16 +1174,6 @@
                 <button id="keybind-game_auto_upgrade" class="keybind-btn" onclick="startRebind('game_auto_upgrade', this)">Unbound</button>
               </div>
             </div>
-            <div class="setting-row">
-              <div>
-                <div class="setting-label">Auto Upgrade (In Game)</div>
-                <div class="setting-desc">Match the Auto Upgrade key configured in the game's settings. Used by Auto Upgrade Unit blocks set to Hotkey.</div>
-              </div>
-              <div class="keybind-group">
-                <button id="keybind-clear-game_auto_upgrade" class="keybind-clear-btn" onclick="clearHotkey('game_auto_upgrade')" title="Reset to default key (press Esc while capturing to unbind)">&times;</button>
-                <button id="keybind-game_auto_upgrade" class="keybind-btn" onclick="startRebind('game_auto_upgrade', this)">Unbound</button>
-              </div>
-            </div>
           </div>
         </section>
       </div>
@@ -1694,6 +1684,19 @@
             </div>
           </div>
 
+          <div class="setting-row" style="padding: 14px;">
+            <div>
+              <div class="setting-label">Camera Yaw Check</div>
+              <div class="setting-desc">Run Camera Setup first, then: <b>Save Ref</b> stores the current angle for this label, <b>Measure</b> reports how far the camera is turned away from it, <b>Align</b> turns it back. Answers whether a map entry landed on the recorded camera angle or a rotated one.</div>
+            </div>
+            <div class="flex items-center gap-2" style="flex-shrink: 0;">
+              <input type="text" id="camera-yaw-label" class="block-input" style="width: 120px;" placeholder="label">
+              <button id="btn-camera-yaw-ref" onclick="runCameraYaw(this, 'reference')" class="text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);">Save Ref</button>
+              <button id="btn-camera-yaw-measure" onclick="runCameraYaw(this, 'measure')" class="text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);">Measure</button>
+              <button id="btn-camera-yaw-align" onclick="runCameraYaw(this, 'align')" class="text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);">Align</button>
+            </div>
+          </div>
+
           <div class="setting-row" style="padding: 14px; border-bottom: none;">
             <div>
               <div class="setting-label">Expedition Camera Zoom</div>
@@ -1888,6 +1891,34 @@
               <input id="coord-team_button_y" class="block-input" style="width: 56px;" type="number" placeholder="Auto" onchange="setMacroCoord('team_button_y', this.value)">
               <button onclick="openCoordPicker('team_button')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Capture the Roblox screen and pick a point inside the Teams button">Pick</button>
               <button onclick="clearMacroCoord('team_button')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Use the detected Teams image center again">Auto</button>
+            </div>
+          </div>
+
+          <div class="setting-row" style="padding: 14px;">
+            <div>
+              <div class="setting-label">Fish Slots</div>
+              <div class="setting-desc">The 6 fish inventory slots. Pick clicks slot 1 then slot 2 -- Step is computed from the gap and slots 3-6 follow from it. Unset means the macro never touches the slots, so a caught fish is never cashed in.</div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <input id="coord-fish_slot_x" class="block-input" style="width: 56px;" type="number" placeholder="Off" onchange="setMacroCoord('fish_slot_x', this.value)">
+              <input id="coord-fish_slot_y" class="block-input" style="width: 56px;" type="number" placeholder="Off" onchange="setMacroCoord('fish_slot_y', this.value)">
+              <span class="text-xs" style="color: var(--text-muted); margin-left: 6px;">Step</span>
+              <input id="coord-fish_slot_step" class="block-input" style="width: 52px;" type="number" placeholder="Off" onchange="setMacroCoord('fish_slot_step', this.value)">
+              <button onclick="openCoordPicker('fish_slot')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Capture the Roblox screen, click the centre of slot 1 then slot 2 -- Step is auto-computed">Pick</button>
+              <button onclick="clearMacroCoord('fish_slot')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Stop touching the fish slots again">Off</button>
+            </div>
+          </div>
+
+          <div class="setting-row" style="padding: 14px;">
+            <div>
+              <div class="setting-label">Fish Bin</div>
+              <div class="setting-desc">Where unwanted fish get dragged. Auto is one slot-width past slot 6, which is where the bin sits -- pick it by hand if the gap is different, since a drag that lands beside the bin drops the fish back into the row.</div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <input id="coord-fish_trash_x" class="block-input" style="width: 56px;" type="number" placeholder="Auto" onchange="setMacroCoord('fish_trash_x', this.value)">
+              <input id="coord-fish_trash_y" class="block-input" style="width: 56px;" type="number" placeholder="Auto" onchange="setMacroCoord('fish_trash_y', this.value)">
+              <button onclick="openCoordPicker('fish_trash')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Capture the Roblox screen and click the middle of the bin">Pick</button>
+              <button onclick="clearMacroCoord('fish_trash')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Derive the bin from the slot row again">Auto</button>
             </div>
           </div>
 
@@ -2122,6 +2153,29 @@
       <div class="modal-body">
         <div class="wh-hint" style="margin-bottom: 10px;">Start each recording at the route's first location. Stop at the destination, then save the path with any name.</div>
         <div id="fuel-path-list" class="flex flex-col gap-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Boss Rush gate paths (Task > Boss Rush > Gate Paths) ============
+       One spawn->gate walk per gate, stored on the task. Rows rendered by
+       renderGatePaths() into #gate-path-list. -->
+  <div id="gate-paths-modal" class="modal-overlay" style="display:none;" onmousedown="if(event.target===this) closeGatePaths()">
+    <div class="modal-panel" style="width: 620px; max-width: 94vw;">
+      <div class="modal-head">
+        <span class="modal-title" id="gate-paths-title">Boss Rush Gate Paths</span>
+        <span class="modal-close" onclick="closeGatePaths()">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="wh-hint" style="margin-bottom: 10px;">Stand at the spawn (after the run's first Start Game, or after taking a gate's card), click Record, walk to the gate and stop in front of it. Pressing E at the end is optional -- the macro presses it if the gate hasn't opened. Don't turn the camera while recording: the walk replays relative to it. The gates can be done in any order; gate 1 is simply the first route walked. A gate left on "Default" walks the route that ships with the macro, where there is one.</div>
+        <div id="gate-path-list" class="flex flex-col gap-2"></div>
+        <div class="fuel-path-row" style="margin-top: 10px; grid-template-columns: 1fr auto;">
+          <div>
+            <div class="setting-label">Speed</div>
+            <div class="setting-desc">Sprint holds Shift for your own gate walks -- pick it if you sprinted while recording. Shipped default routes always sprint.</div>
+          </div>
+          <div class="seg-toggle" id="gate-path-sprint"></div>
+        </div>
       </div>
     </div>
   </div>

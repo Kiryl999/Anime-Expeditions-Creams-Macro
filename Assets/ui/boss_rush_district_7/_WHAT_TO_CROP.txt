@@ -1,0 +1,26 @@
+boss_rush_district_7 -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "boss_rush_district_7.png" in THIS folder.
+
+What to crop:
+  The District 7 map card on the Boss Rush screen -- ideally its name, so a
+  second Boss Rush map added later cannot match it.
+
+Where/how:
+  Lobby > Play > Boss Rush. Clicking it is what opens Select Stage.
+
+Used by:
+  Boss Rush tasks on District 7, to pick the map before Select Stage > Start.
+
+Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
+Roblox, drag a box around it, type the name "boss_rush_district_7", Save Crop --
+that writes the file here and no restart is needed. A hand-made PNG dropped in
+here works too; use Settings > "Reload Vision Images" afterwards so the cache
+picks it up.
+
+Crop TIGHTLY, with as little surrounding background as possible. More crops of
+the SAME thing can be added here under any other .png name -- all of them are
+tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

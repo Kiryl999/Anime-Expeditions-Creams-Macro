@@ -1155,6 +1155,12 @@ h1, h2, h3, .brand-font { font-family: 'Sora', 'Inter', system-ui, sans-serif; }
               inset 0 0 0 1px color-mix(in srgb, var(--tqc, var(--brand)) 25%, transparent);
 }
 .task-card.dragging { opacity: 0.25; border-style: dashed; }
+/* Switched off: still in the queue, skipped by the run. Everything but the
+   switch itself fades, so the one control that brings it back stays clear. */
+.task-card.off .tq-index,
+.task-card.off .tq-accent,
+.task-card.off .tq-text { opacity: 0.45; transition: opacity 0.15s; }
+.task-card.off .tq-title { text-decoration: line-through; text-decoration-color: var(--text-muted); }
 .task-card.removing { opacity: 0; transform: translateX(14px) scale(0.97); }
 
 .tq-index {

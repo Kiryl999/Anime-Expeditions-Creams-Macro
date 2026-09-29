@@ -1,0 +1,30 @@
+boss_rush_continue -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "boss_rush_continue.png" in THIS folder.
+
+What to crop:
+  The "Continue" button offered next to Fight Boss after a cleared gate.
+  Crop the button including its label text.
+
+  It may look just like a Continue the macro already has a crop of
+  (Assets/ui/continue_2/ or Assets/ui/exp_extract_continue/). If one of those
+  matches, a copy of it in this folder is enough -- but keep it in THIS
+  folder under this name, so Boss Rush does not depend on another mode's crop.
+
+Where/how:
+  Clear a gate in Boss Rush before the one the task fights the boss after.
+
+Used by:
+  Every gate before "Boss After Gate": the macro presses this, lands back at
+  the spawn and walks to the next gate.
+
+Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
+Roblox, drag a box around it, type the name "boss_rush_continue", Save Crop --
+that writes the file here and no restart is needed.
+
+Crop TIGHTLY, with as little surrounding background as possible. More crops of
+the SAME thing can be added here under any other .png name -- all of them are
+tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

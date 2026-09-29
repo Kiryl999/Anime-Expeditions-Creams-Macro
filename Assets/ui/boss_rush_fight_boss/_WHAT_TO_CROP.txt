@@ -1,0 +1,28 @@
+boss_rush_fight_boss -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "boss_rush_fight_boss.png" in THIS folder.
+
+What to crop:
+  The "Fight Boss" button offered after a cleared gate (from gate 2 on).
+  Crop the button including its label text -- the label is what separates it
+  from Continue next to it.
+
+Where/how:
+  Clear gate 2 (or later) in Boss Rush.
+
+Used by:
+  The gate the task's "Boss After Gate" names: the macro presses this there.
+  After any earlier gate it presses Continue instead, and it never presses
+  the other one when the one it wants doesn't match -- it abandons the run
+  and logs which crop didn't match.
+
+Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
+Roblox, drag a box around it, type the name "boss_rush_fight_boss", Save Crop --
+that writes the file here and no restart is needed.
+
+Crop TIGHTLY, with as little surrounding background as possible. More crops of
+the SAME thing can be added here under any other .png name -- all of them are
+tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

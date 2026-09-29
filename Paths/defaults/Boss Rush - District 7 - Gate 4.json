@@ -1,0 +1,35 @@
+{
+  "name": "Boss Rush - District 7 - Gate 4",
+  "events": [
+    {
+      "t": 0.0,
+      "key": "a",
+      "state": "down"
+    },
+    {
+      "t": 0.818,
+      "key": "a",
+      "state": "up"
+    },
+    {
+      "t": 1.0,
+      "key": "s",
+      "state": "down"
+    },
+    {
+      "t": 1.152,
+      "key": "s",
+      "state": "up"
+    },
+    {
+      "t": 2.217,
+      "key": "e",
+      "state": "down"
+    },
+    {
+      "t": 2.308,
+      "key": "e",
+      "state": "up"
+    }
+  ]
+}

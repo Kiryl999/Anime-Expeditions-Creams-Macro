@@ -1,0 +1,28 @@
+Flaming Monastery -- IN-MAP REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "Flaming Monastery.png" in THIS folder.
+
+What to crop:
+  The map's NAME LABEL as it shows in-match, once you have teleported onto
+  Flaming Monastery -- the bold white "Flaming Monastery" text. Same kind of
+  crop as Assets/ui/Crimson Shore/Crimson Shore.png.
+
+Why:
+  Regular Challenge does not let you pick the map -- the game picks one and
+  the macro has to tell afterwards which one it landed on, to run that map's
+  Macro Operation (Auto Challenge > Story Map Setup). This crop is how it
+  tells. Without it the image search skips Flaming Monastery and detection
+  falls back to reading the label with OCR (alias "monastery"), which is
+  slower and less reliable. tests/test_challenge_maps.py fails until this
+  crop exists, on purpose.
+
+  This is NOT the same crop as Assets/maps/Flaming Monastery/ (the Play >
+  Story carousel label, used to pick the map by hand in a task).
+
+Easiest way: start a Flaming Monastery stage, then Settings > General >
+Image Manager > the "UI Buttons" tab > Capture Roblox, drag a box tightly
+around the in-match map name, type the name "Flaming Monastery", Save Crop.
+More crops of the same label can be added under any other .png name.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

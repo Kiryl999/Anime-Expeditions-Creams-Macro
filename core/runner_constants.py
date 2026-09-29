@@ -381,6 +381,55 @@ FISHING_MAX_ATTEMPTS_PER_MATCH = 2  # failed clicks before fishing pauses until 
 # of idling. Per-task override in the task's fishing_interval field.
 FISHING_CLICK_INTERVAL = 6.0
 
+# What happens to a fish AFTER it is caught. A catch lands in the 6-slot fish
+# inventory and stays there: a wanted fish pays out on a single left-click,
+# an unwanted one has to be dragged onto the bin sitting right of slot 6.
+# Neither puts up a dialog, so there is nothing to confirm or close -- the
+# slot just empties, which is also how the macro tells that it worked.
+#
+# Both folders hold one crop PER FISH, all tried as interchangeable variants
+# of one name (the folder-per-name rule every other image here follows): a
+# hit on any crop in unwanted_fish/ means "bin it", a hit on any crop in
+# wanted_fish/ means "click it". Adding a fish is dropping a crop in a
+# folder, no code change. Neither folder ships filled -- capture the icons
+# as they render IN the slot (Settings > General > Image Manager). With a
+# folder empty the check reports it once and leaves the slots alone, so
+# fishing keeps working exactly as it did before.
+FISH_WANTED_IMAGE = "wanted_fish"
+FISH_UNWANTED_IMAGE = "unwanted_fish"
+# The six slots sit in one evenly spaced ROW, so the whole layout is slot 1's
+# centre plus the step to the next slot -- the same "base point + spacing"
+# shape Team Loadout rows use, just horizontal. Both live in Settings > Debug
+# > Macro Coordinates (fish_slot_x/fish_slot_y/fish_slot_step) rather than as
+# constants here: nothing in the repo can measure where the row renders on a
+# given setup, and the Pick flow gets it in two clicks.
+#
+# UNSET IS OFF. There is no sensible default to guess -- a made-up row would
+# click into the middle of the HUD -- so with the row unset the slots are
+# simply never touched and the rest of fishing runs as before.
+FISH_SLOT_COUNT = 6
+# The box searched around a slot centre. It has to hold a WHOLE crop: the
+# matcher treats a template bigger than the image it searches as a plain
+# miss, without a word. This was 52x52, sized for a bare icon -- but the
+# crops are whole slot cards, frame and name label included, 58-66 px
+# across, so not one of them ever fit: every slot read as empty and no fish
+# was ever clicked or binned. The matcher also tries each crop 10% larger
+# (vision.SCALE_FACTORS), which takes a 66 px card to 73; the rest is room
+# for a pick a few pixels off. Wider than tall because only x drifts: slots
+# 3-6 are derived from the picked step, so a step 2 px off puts slot 6 10 px
+# off, while y is picked directly.
+#
+# Overhanging the slot is fine. A match has to fit whole inside the box, so
+# what keeps the neighbour's fish out is that ITS whole card does not fit --
+# that would take two steps plus a card, far past this. Not exposed in
+# Settings -- it follows the card size, which is the same on every setup
+# (captures are normalised to reference space), unlike where the row sits.
+FISH_SLOT_BOX = (100, 90)
+FISH_CHECK_INTERVAL = 20.0
+# Let the inventory redraw after a click/drag before the next slot is read,
+# so an already-handled fish is not seen a second time in the same pass.
+FISH_SETTLE_DELAY = 0.35
+
 # Event mode: reached straight from the lobby via its own nav_event button
 # (NOT through Play like Story/Raid/Expedition/Challenge), then the Summer
 # event's nav entry, then its gamemode card, then one of the event kind cards.
@@ -1097,6 +1146,14 @@ DEFAULT_COORDS = {
     # that pass hit instead.
     "portal_list_x": None, "portal_list_y": None,
     "portal_list_w": None, "portal_list_h": None,
+    # Fish inventory row (Tidal Siege). Slot 1's centre plus the step to the
+    # next slot describes all six; the bin defaults to one step PAST slot 6,
+    # which is where it sits. All unset = the slots are never touched, which
+    # is the shipped state -- see FISH_SLOT_COUNT for why nothing is guessed.
+    "fish_slot_x": None, "fish_slot_y": None, "fish_slot_step": None,
+    # Optional override for the bin. None = Auto: slot 1 + FISH_SLOT_COUNT
+    # steps. Set it when the bin is not exactly one slot-width past slot 6.
+    "fish_trash_x": None, "fish_trash_y": None,
     "screen_middle_x": SCREEN_MIDDLE_CLICK[0], "screen_middle_y": SCREEN_MIDDLE_CLICK[1],
     "unit_info_reset_x": UNIT_INFO_RESET_CLICK[0], "unit_info_reset_y": UNIT_INFO_RESET_CLICK[1],
     "daily_challenge_tab_x": 250, "daily_challenge_tab_y": 315,
@@ -1195,3 +1252,181 @@ def fuel_refill_interval_seconds(amount) -> int:
     safety = max(FUEL_MIN_SAFETY_SECONDS, int(coverage * FUEL_SAFETY_RATIO))
     return max(FUEL_UNIT_SECONDS, coverage - safety)
 
+
+
+# ── Eclipse quest line (secret unit) ────────────────────────────────────────
+# The quest is a CYCLE, not a stage: take it from an NPC on Crimson Shore,
+# farm the Eclipse event that then appears on a random story map until the
+# soul stack is capped, hand the souls back to the same NPC, repeat. See
+# core/runner_eclipse.py for the state machine these name the pieces of.
+
+# Where the quest NPC stands. The quest is only ever given/turned in here,
+# whichever map the Eclipse event itself happens to land on that cycle.
+ECLIPSE_QUEST_MAP = "Crimson Shore"
+# Which stage the NPC visit enters on. The NPC stands in the map regardless
+# of act/difficulty, so this is just "the cheapest way in" -- the visit
+# leaves again without ever starting the match.
+ECLIPSE_QUEST_STAGE = "1"
+ECLIPSE_QUEST_DIFFICULTY = "Normal"
+
+# Accepting the quest and handing the souls in are DIFFERENT buttons, and
+# handing in has one button per soul type -- which soul you carry depends on
+# which card you farmed, so the redeem button follows the task's card choice.
+QUEST_ACCEPT_IMAGE = "quest_accept"
+QUEST_REDEEM_IMAGES = {
+    "redemption": "quest_redeem_redemption",
+    "sacrifice": "quest_redeem_sacrifice",
+}
+# Tried in this order when the task's card choice does not name a redeem
+# button of its own (Neutral, or a future card) -- whichever is actually on
+# screen is the one the NPC is offering.
+QUEST_REDEEM_ORDER = ("sacrifice", "redemption")
+
+# The dialog frame itself -- the same in every quest state, so it cannot say
+# WHICH state on its own. What it does say is "the dialog is open", and that
+# turns the absence of the Accept button into an answer: dialog up, Accept
+# not offered => the quest is already running. That inference is what lets
+# the whole cycle work off two crops (this one and quest_accept) instead of
+# needing a redeem crop before the first run can be tested.
+QUEST_DIALOG_IMAGE = "quest_dialog"
+
+# How long the buttons get to animate in after the dialog frame appears,
+# before their absence is read as an answer rather than as a slow render.
+ECLIPSE_BUTTON_SETTLE = 2.0
+
+# Quest states a start-up/recovery check can land on. Which BUTTON the
+# dialog offers is the whole signal -- accept means nothing is running,
+# a redeem button means a previous cycle is still open.
+QUEST_STATE_ACTIVE = "active"
+QUEST_STATE_NOT_STARTED = "not_started"
+QUEST_STATE_UNKNOWN = "unknown"
+
+# The marker over a story map's name in the Play > Story carousel that says
+# "the Eclipse event is running on THIS map". Deliberately map-agnostic: the
+# macro finds the marker first and works out which map it sits on second,
+# because which map carries it is random every cycle.
+ECLIPSE_MARKER_IMAGE = "eclipse_map_marker"
+# The Eclipse symbol in the act-selection row -- the confirmation that the
+# map opened onto its Eclipse variant and not its ordinary acts.
+ECLIPSE_ACT_IMAGE = "eclipse_act"
+
+# The mid-battle card choice. Which one a task takes is a task field; the
+# names map to the reference images under Assets/ui/<name>/.
+ECLIPSE_CARD_IMAGES = {
+    "redemption": "eclipse_card_redemption",
+    "sacrifice": "eclipse_card_sacrifice",
+    "neutral": "eclipse_card_neutral",
+}
+# Order the UI offers them in, and the order a fallback search tries them.
+ECLIPSE_CARD_ORDER = ("sacrifice", "redemption", "neutral")
+
+# The capped-soul-stack marker in the Victory screen's loot row -- the farm
+# loop's stop condition. While it is absent the macro presses Retry; the
+# first time it matches, the cycle moves on to handing the souls in.
+SOULS_FULL_IMAGE = "souls_full"
+
+# A cycle that never reaches a full stack has to end somewhere: a silently
+# broken souls_full crop would otherwise farm the same event forever.
+ECLIPSE_MAX_RUNS_PER_CYCLE = 40
+
+# How long to wait for the NPC dialog to show a quest button. Both of these
+# are POLLED waits, not one instant look: the walk ends the moment its last
+# key comes up, while the dialog still has to register the interact and
+# animate in -- checking once right then reads an empty screen and concludes
+# the walk missed the NPC (reported live, exactly that way).
+#
+# The first is short on purpose. It only covers routes that press E
+# themselves; when a route does not, every second here is dead time before
+# the tap that actually opens the dialog.
+ECLIPSE_DIALOG_PRECHECK = 2.5
+# After the tap, the full wait -- by now something should be opening.
+ECLIPSE_DIALOG_TIMEOUT = 6.0
+# The quest buttons animate in with the dialog rather than being there the
+# instant it opens.
+ECLIPSE_QUEST_BUTTON_TIMEOUT = 8.0
+# How long to look for the Eclipse marker across the carousel before
+# concluding no map is running the event.
+ECLIPSE_MARKER_TIMEOUT = 6.0
+
+# How close, in reference-space pixels, a map's name label has to sit under
+# the marker to count as the map the marker belongs to. The carousel shows
+# three cards across the full 1152px width, so cards are ~380px apart --
+# half of that is a comfortable margin that still cannot reach a neighbour.
+ECLIPSE_MARKER_MAP_MAX_DX = 180
+
+# ── Boss Rush ────────────────────────────────────────────────────────────────
+# Play > Boss Rush > map > Select Stage > Start. One RUN (one task repeat) is:
+# Start Game at the spawn, then per gate: walk there, E, Start Game, clear it,
+# take one of three cards, land back at the spawn -- two to six times -- and
+# after the chosen gate Fight Boss instead of Continue. Units placed in the
+# first gate stay placed through every later gate; the boss arena starts
+# empty. See core/runner_boss_rush.py.
+
+# The Boss Rush card on the Play menu, picked in place of Story.
+BOSS_RUSH_IMAGE_NAMES = ("boss_rush",)
+# Map name -> its card on the Boss Rush screen. One map so far; a new one is
+# an entry here, its crop, and its name in TASK_DATA.boss_rush.maps (a test
+# keeps the two lists in step).
+BOSS_RUSH_MAP_IMAGES = {
+    "District 7": "boss_rush_district_7",
+}
+BOSS_RUSH_MAP_ORDER = ("District 7",)
+# How long to wait for the map card once the Boss Rush screen is opening.
+BOSS_RUSH_SCREEN_TIMEOUT = 10.0
+
+# A run has this many gates, and Fight Boss is first offered after the
+# second one -- so "boss after gate N" is 2..6. Mirrored by
+# TASK_DATA.boss_rush.bossAfter in ui/app.js.
+BOSS_RUSH_GATE_COUNT = 6
+BOSS_RUSH_MIN_BOSS_GATE = 2
+
+# The screens a cleared gate puts up. The card choice (three cards, like
+# Expedition's upgrade pick) is what confirms the gate is done; Fight Boss /
+# Continue is the choice of what comes next. Any of the three showing up
+# mid-battle ends the gate's poll loop, so the order the game shows them in
+# does not matter -- _boss_rush_after_gate handles whichever is up.
+BOSS_RUSH_CARD_IMAGE = "boss_rush_card"
+BOSS_RUSH_FIGHT_BOSS_IMAGE = "boss_rush_fight_boss"
+BOSS_RUSH_CONTINUE_IMAGE = "boss_rush_continue"
+BOSS_RUSH_GATE_CLEAR_IMAGES = (BOSS_RUSH_CARD_IMAGE, BOSS_RUSH_FIGHT_BOSS_IMAGE,
+                               BOSS_RUSH_CONTINUE_IMAGE)
+
+# Landing at the spawn -- after the run's first Start Game, and after each
+# gate's card -- has no image of its own to wait for, so the walk waits this
+# long for the teleport to finish. A walk that starts early loses its first
+# steps and ends short of the gate.
+BOSS_RUSH_SPAWN_SETTLE = 3.0
+# After the walk: how long Start Game gets to appear for a route that pressed
+# E itself, before the macro taps E. Same two-step as the Eclipse NPC dialog.
+BOSS_RUSH_GATE_PRECHECK = 3.0
+# After the E tap: how long entering the gate may take.
+BOSS_RUSH_GATE_ENTER_TIMEOUT = 15.0
+# After Fight Boss: how long the boss arena's Start Game may take to appear.
+BOSS_RUSH_BOSS_ARENA_TIMEOUT = 20.0
+# The whole card + Fight Boss/Continue sequence after a gate.
+BOSS_RUSH_POST_GATE_TIMEOUT = 60.0
+# How long none of the post-gate screens may be up before the sequence
+# counts as finished. They render one after another with a gap in between,
+# so the first empty frame is not the end of it.
+BOSS_RUSH_POST_GATE_QUIET = 3.0
+# Fight Boss and Continue render together; one of them showing alone for
+# this long means the other one's crop is not matching.
+BOSS_RUSH_BUTTON_SETTLE = 3.0
+# Gap after each click in the post-gate sequence, so the next look does not
+# catch the same screen mid-close and click it twice.
+BOSS_RUSH_CLICK_SETTLE = 0.8
+BOSS_RUSH_POST_GATE_POLL = 0.4
+
+# While a gate runs, how close the card crop comes to matching is measured
+# too (see BossRushOps._measure_boss_rush_card) -- a card screen that scores
+# 0.85 against a 0.90 threshold is otherwise indistinguishable from "no card
+# screen yet", and the game auto-picks after 20s. Measured every INTERVAL
+# (it scans every variant at every scale), the best score so far is logged
+# every REPORT_INTERVAL, and the first frame scoring NEAR_MISS or more is
+# saved as a debug screenshot, once per gate, to cut a better crop from.
+# NEAR_MISS sits above what the card crops score against unrelated game
+# screens (up to 0.65 across the reference screenshots in Assets/), so an
+# ordinary battle frame does not produce a screenshot every gate.
+BOSS_RUSH_CARD_MEASURE_INTERVAL = 2.0
+BOSS_RUSH_CARD_REPORT_INTERVAL = 30.0
+BOSS_RUSH_CARD_NEAR_MISS = 0.70

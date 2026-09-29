@@ -1,0 +1,34 @@
+boss_rush_card -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "boss_rush_card.png" in THIS folder.
+
+What to crop:
+  Something on the three-card choice that comes up when a gate is cleared,
+  and that is on screen at NO other moment -- its heading or its frame, not
+  one of the cards (the cards change every time).
+
+  If that screen looks exactly like Expedition's "Select Upgrade" card pick,
+  check first whether Boss Rush ALSO shows level-up cards in the middle of a
+  gate. If it does, this crop must be something only the gate-cleared screen
+  has -- otherwise a level-up card would be read as "gate cleared" and the
+  macro would walk off mid-fight.
+
+Where/how:
+  Clear a gate in Boss Rush; the card choice comes up right after.
+
+Used by:
+  Recognising that a gate is done (it ends the gate's battle loop), and then
+  taking a card: the macro clicks the middle of the screen, the same click
+  Expedition uses for its upgrade cards.
+
+Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
+Roblox, drag a box around it, type the name "boss_rush_card", Save Crop -- that
+writes the file here and no restart is needed. Capture it quickly: the choice
+may be on a timer.
+
+Crop TIGHTLY, with as little surrounding background as possible. More crops of
+the SAME thing can be added here under any other .png name -- all of them are
+tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

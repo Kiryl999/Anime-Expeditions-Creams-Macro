@@ -338,16 +338,22 @@ class BlockOps:
         if self._leave_match_to_lobby(hwnd, stop_event):
             self._battle_leave_requested = True
 
-    def _leave_match_to_lobby(self, hwnd, stop_event: threading.Event) -> bool:
+    def _leave_match_to_lobby(self, hwnd, stop_event: threading.Event,
+                                reason: str = "Leave at Minute") -> bool:
         """Leave a live match straight to the lobby: click the in-match To
         Lobby button (nav_todalobby), then the Return to Lobby confirmation.
         Mirrors the Infinite wave-limit exit (_leave_infinite_at_wave_limit),
-        which clicks leave_stage instead -- this block uses nav_todalobby."""
+        which clicks leave_stage instead -- this block uses nav_todalobby.
+
+        `reason` names the caller in the log and status line. It used to say
+        "Leave at Minute" unconditionally, which read as a lie once the
+        Eclipse quest's NPC visit started using this to walk back out of a
+        map it never fought in."""
         self._release_quick_place_shift()
-        self._set_status(action="Leaving to lobby (Leave at Minute)...")
+        self._set_status(action=f"Leaving to lobby ({reason})...")
         if not self._click_and_verify_gone(
                 hwnd, stop_event, "nav_todalobby", NAV_CLICK_TIMEOUT, success_name="return"):
-            self._log('[Macro] "nav_todalobby" not found -- can\'t leave for Leave at Minute (will retry).')
+            self._log(f'[Macro] "nav_todalobby" not found -- can\'t leave for {reason} (will retry).')
             return False
         self._click_return_to_lobby_if_found(hwnd, stop_event)
         return not self._checkpoint(stop_event)

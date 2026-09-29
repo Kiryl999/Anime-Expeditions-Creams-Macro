@@ -255,6 +255,141 @@ def test_tower_mode_defaults_to_rose_kingdom_and_traitless_summary_chip(tmp_path
     assert "Solo" not in out["summary"]["meta"] and "Matchmaking" not in out["summary"]["meta"]
 
 
+_BOSS_RUSH_HARNESS = """
+const TASK_DATA = {
+  story: { label: 'Story', maps: ['School Grounds'], stages: ['1'], difficulties: ['Normal'] },
+  boss_rush: { label: 'Boss Rush', maps: ['District 7'], bossAfter: ['2', '3', '4', '5', '6'], isBossRush: true },
+};
+const DEFAULT_INFINITE_WAVE_LIMIT = 20;
+const DEFAULT_FISHING_INTERVAL = 6;
+const BOSS_RUSH_GATE_COUNT = 6;
+let selectedTaskId = null;
+let gatePathsTaskId = null;
+let recordingGatePath = null;
+let taskCards = [{
+  id: 't1', mode: 'story', map: 'School Grounds', stage: '1', difficulty: 'Normal',
+  repeat: 2, play_mode: 'matchmaking', macro: 'Gates', boss_after: '9', boss_macro: '',
+}];
+function findTask(id) { return taskCards.find(t => t.id === id); }
+function updateQueueRowInPlace() {}
+function renderTaskBuilder() {}
+function renderGatePaths() {}
+function saveTaskQueue() {}
+eval(extract('setTaskProp'));
+eval(extract('taskSummary'));
+eval(extract('gatePathList'));
+eval(extract('gateRoutesNeeded'));
+eval(extract('setGatePath'));
+"""
+
+
+def test_switching_a_task_to_boss_rush_picks_its_map_and_solo(tmp_path):
+    out = run_js(_BOSS_RUSH_HARNESS + """
+        setTaskProp('t1', 'mode', 'boss_rush');
+        setTaskProp('t1', 'boss_macro', 'Boss Arena');
+        console.log(JSON.stringify({task: taskCards[0], summary: taskSummary(taskCards[0])}));
+    """, tmp_path)
+    assert out["task"]["map"] == "District 7"
+    assert out["task"]["play_mode"] == "solo"
+    # '9' is no gate the game offers Fight Boss after -- reset to the first one.
+    assert out["task"]["boss_after"] == "2"
+    assert out["summary"]["title"].startswith("Boss Rush")
+    assert "District 7" in out["summary"]["title"] and "gate 2" in out["summary"]["title"]
+    assert "Solo" not in out["summary"]["meta"] and "Matchmaking" not in out["summary"]["meta"]
+    assert "Gates" in out["summary"]["meta"] and "Boss Arena" in out["summary"]["meta"]
+
+
+def test_gate_paths_are_padded_and_only_the_walked_gates_are_needed(tmp_path):
+    out = run_js(_BOSS_RUSH_HARNESS + """
+        console.log(JSON.stringify({
+          padded: gatePathList({ gate_paths: ['a', null] }),
+          missing: gatePathList({}),
+          trimmed: gatePathList({ gate_paths: ['1', '2', '3', '4', '5', '6', '7'] }),
+          needed: ['2', '4', '6', '1', '12', '', 'x'].map(v => gateRoutesNeeded({ boss_after: v })),
+        }));
+    """, tmp_path)
+    assert out["padded"] == ["a", "", "", "", "", ""]
+    assert out["missing"] == [""] * 6
+    assert out["trimmed"] == ["1", "2", "3", "4", "5", "6"]
+    assert out["needed"] == [2, 4, 6, 2, 6, 2, 2]
+
+
+def test_a_task_can_be_switched_off_and_back_on_without_losing_it(tmp_path):
+    out = run_js("""
+        const TASK_DATA = { story: { label: 'Story' } };
+        const DEFAULT_INFINITE_WAVE_LIMIT = 20;
+        let saves = 0;
+        let taskCards = [
+          { id: 't1', mode: 'story', map: 'A', stage: '1', difficulty: 'Normal', repeat: 3, play_mode: 'solo', macro: 'Farm' },
+          { id: 't2', mode: 'story', map: 'B', stage: '1', difficulty: 'Normal', repeat: 1, play_mode: 'solo', macro: '' },
+        ];
+        function findTask(id) { return taskCards.find(t => t.id === id); }
+        function updateQueueRowInPlace() {}
+        function saveTaskQueue() { saves++; }
+        eval(extract('taskSummary'));
+        eval(extract('taskQueueCountLabel'));
+        eval(extract('toggleTaskEnabled'));
+        toggleTaskEnabled('t1');
+        const off = { task: { ...taskCards[0] }, summary: taskSummary(taskCards[0]), count: taskQueueCountLabel() };
+        toggleTaskEnabled('t1');
+        const on = { task: { ...taskCards[0] }, summary: taskSummary(taskCards[0]), count: taskQueueCountLabel() };
+        console.log(JSON.stringify({ off, on, saves, count: taskCards.length }));
+    """, tmp_path)
+    assert out["off"]["task"]["enabled"] is False
+    assert out["off"]["task"]["macro"] == "Farm" and out["off"]["task"]["repeat"] == 3
+    assert "Off" in out["off"]["summary"]["meta"]
+    assert out["off"]["count"].startswith("2 tasks") and "1 off" in out["off"]["count"]
+    assert out["on"]["task"]["enabled"] is True
+    assert "Off" not in out["on"]["summary"]["meta"]
+    assert out["on"]["count"] == "2 tasks"
+    assert out["saves"] == 2 and out["count"] == 2
+
+
+def test_new_tasks_start_switched_on(tmp_path):
+    out = run_js("""
+        const TASK_DATA = { story: { maps: ['Map'] } };
+        const DEFAULT_INFINITE_WAVE_LIMIT = 20;
+        const DEFAULT_FISHING_INTERVAL = 6;
+        function newTaskId() { return 't1'; }
+        eval(extract('defaultTask'));
+        console.log(JSON.stringify(defaultTask()));
+    """, tmp_path)
+    assert out["enabled"] is True
+
+
+def test_shipped_gate_routes_count_as_covered(tmp_path):
+    out = run_js(_BOSS_RUSH_HARNESS + """
+        let bossRushDefaultRoutes = { 'District 7': { gates: ['s1', 's2', 's3'], sprint: true } };
+        eval(extract('gateDefaultRoute'));
+        eval(extract('gateRoutesCovered'));
+        const shipped = { map: 'District 7', boss_after: '4', gate_paths: ['', 'mine'] };
+        const elsewhere = { map: 'Nowhere', boss_after: '4', gate_paths: ['', 'mine'] };
+        console.log(JSON.stringify({
+          shipped: gateRoutesCovered(shipped),
+          elsewhere: gateRoutesCovered(elsewhere),
+          gate1: gateDefaultRoute(shipped, 1),
+          gate4: gateDefaultRoute(shipped, 4),
+        }));
+    """, tmp_path)
+    # Gates 1 and 3 from what ships, gate 2 the task's own, gate 4 uncovered.
+    assert out["shipped"] == 3
+    assert out["elsewhere"] == 1
+    assert out["gate1"] == "s1" and out["gate4"] == ""
+
+
+def test_a_cloned_boss_rush_task_keeps_its_own_gate_paths(tmp_path):
+    # Clone Task copies shallowly; an in-place write into the shared array
+    # would re-route the clone as well.
+    out = run_js(_BOSS_RUSH_HARNESS + """
+        taskCards[0].gate_paths = ['a', 'b', '', '', '', ''];
+        taskCards.push({ ...taskCards[0], id: 't2' });
+        setGatePath('t2', 3, 'c');
+        console.log(JSON.stringify(taskCards.map(t => t.gate_paths)));
+    """, tmp_path)
+    assert out[0] == ["a", "b", "", "", "", ""]
+    assert out[1] == ["a", "b", "c", "", "", ""]
+
+
 
 # ---------------------------------------------------------------------------
 # removeBlock: the deferred splice must not use a stale index
@@ -775,20 +910,24 @@ def test_app_js_calls_no_undefined_top_level_function():
 # keep that honest, so both ends stay covered here.
 
 _TASK_EXPORT_WORLD = """
-const logs = []; let exported = null;
+const logs = []; let exported = null; let pathNames = null;
 global.addLog = m => logs.push(m);
-global.exportCustomPaths = async () => ({});
+global.exportCustomPaths = async (templates, extra = []) => { pathNames = extra; return {}; };
 global.exportCustomRecordings = async () => ({});
+global.BOSS_RUSH_GATE_COUNT = 6;
 global.taskCards = %s;
 global.pywebview = { api: {
   list_templates: async () => %s,
   load_template: async n => ({ name: n, blocks: { prestart: [], battle: [] } }),
   export_tasks_file: async p => { exported = p; return { ok: true, path: 'q.json' }; },
 }};
+eval(extract('gatePathList'));
 eval(extract('taskMacroNames'));
+eval(extract('taskPathNames'));
 eval(extract('exportTasks'));
 exportTasks().then(() => console.log(JSON.stringify({
   bundled: exported ? Object.keys(exported.templates).sort() : null,
+  paths: pathNames,
   log: logs[logs.length - 1] })));
 """
 
@@ -799,6 +938,23 @@ def test_export_bundles_every_macro_a_task_references(tmp_path):
     out = run_js(_TASK_EXPORT_WORLD % (_ONE_TASK, "['Main Farm', 'Unused']"), tmp_path)
     assert out["bundled"] == ["Main Farm"], (
         "the task's macro was left out of the package again")
+
+
+def test_a_boss_rush_export_carries_its_boss_macro_and_gate_routes(tmp_path):
+    # The boss macro and the gate routes hang off the task itself, not off a
+    # macro's Walk Path block -- without this they stay behind on export.
+    task = ("[{id:1, mode:'boss_rush', macro:'Gates', boss_macro:'Boss', "
+            "gate_paths:['Gate A', '', 'Gate C']}]")
+    out = run_js(_TASK_EXPORT_WORLD % (task, "['Gates', 'Boss']"), tmp_path)
+    assert out["bundled"] == ["Boss", "Gates"]
+    assert out["paths"] == ["Gate A", "Gate C"]
+
+
+def test_a_boss_macro_left_on_a_task_that_is_no_longer_boss_rush_is_not_exported(tmp_path):
+    task = "[{id:1, mode:'story', macro:'Main Farm', boss_macro:'Old Boss', gate_paths:['x']}]"
+    out = run_js(_TASK_EXPORT_WORLD % (task, "['Main Farm']"), tmp_path)
+    assert out["bundled"] == ["Main Farm"]
+    assert out["paths"] == []
 
 
 def test_export_stops_when_a_referenced_macro_no_longer_exists(tmp_path):
@@ -1649,6 +1805,7 @@ global.renderTaskList = () => {};
 global.renderTaskBuilder = () => {};
 global.refreshTaskPresets = () => {};
 global.refreshTaskTemplates = async () => {};
+global.refreshBossRushDefaultRoutes = async () => {};
 global.saveTaskQueue = () => {};
 global.newTaskId = () => 't1';
 global.DEFAULT_INFINITE_WAVE_LIMIT = 20;

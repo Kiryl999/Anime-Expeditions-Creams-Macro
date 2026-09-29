@@ -1878,6 +1878,35 @@ async function runCameraSetup3(btn) {
   setTimeout(() => { btn.textContent = original; btn.disabled = false; }, Math.max(3200, holdMs + 1200));
 }
 
+// Settings > Debug > "Camera Yaw Check" -- the diagnostic for "sometimes the
+// map is turned and the walk path runs off in the wrong direction". Needs the
+// camera already in its top-down setup pose (that flat view is what makes a
+// yaw difference readable as a plain image rotation), so run Camera Setup
+// first. Results are logged, not shown on the button: an angle plus a match
+// score is more than a button label can carry, and the log keeps a history to
+// compare entries against each other.
+async function runCameraYaw(btn, action) {
+  const original = btn.textContent;
+  const labelInput = document.getElementById('camera-yaw-label');
+  const label = (labelInput && labelInput.value || '').trim();
+  if (!label) {
+    btn.textContent = 'Need a label';
+    setTimeout(() => { btn.textContent = original; }, 1600);
+    return;
+  }
+  switchScreen('dashboard');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  await new Promise(resolve => setTimeout(resolve, 400));
+  try {
+    const result = await pywebview.api.debug_camera_yaw(label, action);
+    btn.textContent = result.ok ? 'Started' : `Failed (${result.reason || 'error'})`;
+  } catch (e) {
+    btn.textContent = 'Failed';
+  }
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+}
+
 // Settings > General > "Install Tesseract OCR" -- unlike Camera Setup's
 // fixed-timeout buttons, install_tesseract() actually signals real
 // completion via push_ui (tesseractInstallDone/tesseractInstallFailed,
@@ -2214,6 +2243,34 @@ const TASK_DATA = {
     maps: ['Solo Tournament'],
     isTournament: true,
   },
+  eclipse: {
+    label: 'Eclipse Quest',
+    // The odd one out: a task here is not a stage but a whole QUEST CYCLE --
+    // take the quest from the NPC on Crimson Shore, farm the Eclipse event
+    // that then appears on a random story map until the soul stack caps,
+    // hand the souls in, repeat. So there is no map or difficulty to pick
+    // (the event's map is random and found by its marker) and no
+    // Solo/Matchmaking (the NPC visits are solo by nature). The only real
+    // choice is which card to take when the event offers one, since that
+    // decides which souls drop -- and, with them, which Redeem button the
+    // NPC ends up offering. Mirrors ECLIPSE_CARD_ORDER in
+    // core/runner_constants.py; a test keeps the two in sync.
+    cards: ['sacrifice', 'redemption', 'neutral'],
+    isEclipse: true,
+  },
+  boss_rush: {
+    label: 'Boss Rush',
+    // One repeat is one whole run: Start Game at the spawn, then per gate
+    // walk there, E, Start Game, clear it, take a card, back at the spawn --
+    // up to the gate picked here -- then Fight Boss. The walks are recorded
+    // per task under Gate Paths (gate_paths). Solo only. `maps` mirrors
+    // BOSS_RUSH_MAP_ORDER and `bossAfter` BOSS_RUSH_MIN_BOSS_GATE..
+    // BOSS_RUSH_GATE_COUNT in core/runner_constants.py; a test keeps them in
+    // sync.
+    maps: ['District 7'],
+    bossAfter: ['2', '3', '4', '5', '6'],
+    isBossRush: true,
+  },
   tower: {
     label: 'Tower',
     maps: ['Rose Kingdom'],  // internal default only -- Tower has no map picker in-game
@@ -2233,8 +2290,10 @@ let enteringTaskIds = new Set();
 let taskTemplates = [];  // Macro Manager template names, for the Macro Operation picker
 let taskSaveTimer = null;
 const DEFAULT_FISHING_INTERVAL = 6;   // seconds between casts -- mirrors FISHING_CLICK_INTERVAL
+const FISH_SLOT_COUNT = 6;            // fish inventory slots -- mirrors FISH_SLOT_COUNT
 const DEFAULT_INFINITE_WAVE_LIMIT = 20;
 const MAX_EXTRACT_AFTER = 9999;
+const BOSS_RUSH_GATE_COUNT = 6;       // gates per Boss Rush run -- mirrors BOSS_RUSH_GATE_COUNT
 
 function newTaskId() {
   return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -2242,11 +2301,23 @@ function newTaskId() {
 
 function defaultTask() {
   return {
-    id: newTaskId(), mode: 'story',
+    // Switched off = kept in the queue with every setting, but skipped by
+    // the run (see MacroRunner._enabled_tasks). Toggled on the queue row.
+    id: newTaskId(), enabled: true, mode: 'story',
     map: TASK_DATA.story.maps[0], stage: '1', difficulty: 'Normal',
     infinite_wave_limit: DEFAULT_INFINITE_WAVE_LIMIT,
     extract_after: '1',
     repeat: 1, team: '', equipment: 'include', play_mode: 'solo', macro: '',
+    // Which card an Eclipse task takes when the event offers one. Unused by
+    // every other mode, but carried on every task so switching modes never
+    // lands on an unset field.
+    eclipse_card: 'sacrifice',
+    // Boss Rush: the gate after which Fight Boss is pressed, the Macro
+    // Operation that re-places the units in the boss arena ('' = the task's
+    // own), and one recorded spawn->gate walk per gate (read through
+    // gatePathList, which pads it to one per gate). Carried on every task
+    // for the same reason as eclipse_card.
+    boss_after: '2', boss_macro: '', gate_paths: [], gate_sprint: false,
     // Auto Fishing is per TASK, not a global coordinate: where the water is
     // depends on where the character was parked, so two tasks on two maps
     // carry two points. Off until a point is picked.
@@ -2320,9 +2391,9 @@ function collectCustomPathNames(templates) {
   return [...names];
 }
 
-async function exportCustomPaths(templates) {
+async function exportCustomPaths(templates, extraNames = []) {
   const paths = {};
-  for (const name of collectCustomPathNames(templates)) {
+  for (const name of new Set([...collectCustomPathNames(templates), ...extraNames])) {
     try {
       const saved = await pywebview.api.load_walk_path(name);
       if (saved && Array.isArray(saved.events)) paths[name] = saved;
@@ -2456,7 +2527,15 @@ async function importSettings() {
 // queue arrived referencing a macro the recipient did not have -- and the
 // export still reported success.
 function taskMacroNames(task) {
-  return [task.macro].filter(Boolean);
+  // Boss Rush places its units twice, the second time with its own macro.
+  const boss = task.mode === 'boss_rush' ? task.boss_macro : '';
+  return [task.macro, boss].filter(Boolean);
+}
+
+// Recorded walks a task points at directly rather than through its macro --
+// Boss Rush's gate routes. Bundled by Export like the macros' own paths.
+function taskPathNames(task) {
+  return task.mode === 'boss_rush' ? gatePathList(task).filter(Boolean) : [];
 }
 
 async function exportTasks() {
@@ -2481,7 +2560,7 @@ async function exportTasks() {
       try { templates[name] = await pywebview.api.load_template(name); } catch (e) {}
     }
   }
-  const paths = await exportCustomPaths(templates);
+  const paths = await exportCustomPaths(templates, taskCards.flatMap(taskPathNames));
   const recordings = await exportCustomRecordings(templates);
   const payload = {
     kind: 'anime-expeditions-tasks', version: 2, exported: new Date().toISOString(),
@@ -2768,7 +2847,7 @@ function setTaskProp(id, key, value) {
   // labels re-render on every change either way, but the Builder is only
   // rebuilt when the *shape* changed so typing in the Repeat field doesn't
   // lose focus mid-keystroke to an innerHTML swap.
-  const structural = ['mode', 'stage'];
+  const structural = ['mode', 'stage', 'boss_after'];
   if (key === 'mode') {
     const d = TASK_DATA[t.mode];
     if (d.maps) t.map = d.maps[0];
@@ -2782,11 +2861,20 @@ function setTaskProp(id, key, value) {
     // 'matchmaking'. Force it so switching from a matchmaking task can't leave
     // Tournament silently waiting on an Enter Matchmaking button.
     if (d.isTournament) t.play_mode = 'solo';
+    if (d.isEclipse) {
+      t.map = 'Eclipse';       // no map to pick; a label keeps logs/status readable
+      t.play_mode = 'solo';
+      if (!d.cards.includes(t.eclipse_card)) t.eclipse_card = d.cards[0];
+    }
     if (d.isTower) {
       t.map = d.maps[0];
       t.stage = d.stages[0];
       if (!t.tower_mode) t.tower_mode = 'normal';
       t.play_mode = 'solo';
+    }
+    if (d.isBossRush) {
+      t.play_mode = 'solo';
+      if (!d.bossAfter.includes(String(t.boss_after))) t.boss_after = d.bossAfter[0];
     }
   }
   if (key === 'stage' && (value === 'Infinite' || value === 'infinite') && !Number.isInteger(Number(t.infinite_wave_limit))) {
@@ -2802,7 +2890,7 @@ function taskOpts(list, current, fmt) {
 }
 
 // One accent per mode so the queue scans by color before you even read it.
-const TASK_MODE_COLORS = { story: 'var(--brand)', raid: 'var(--rose)', expedition: 'var(--teal)', event: 'var(--amber)', tournament: 'var(--lilac)', tower: 'var(--slate)' };
+const TASK_MODE_COLORS = { story: 'var(--brand)', raid: 'var(--rose)', expedition: 'var(--teal)', event: 'var(--amber)', tournament: 'var(--lilac)', tower: 'var(--slate)', eclipse: 'var(--lilac)', boss_rush: 'var(--rose)' };
 
 // The two text lines a queue row shows for a task -- where it goes, then how
 // it runs. All editing happens in the Builder, rows are read-only summaries.
@@ -2817,20 +2905,33 @@ function taskSummary(t) {
     title += ' · Infinite';
   } else if (t.mode === 'portals') {
     title += ` · ${t.map || 'summer'}`;
+  } else if (t.mode === 'eclipse') {
+    const card = t.eclipse_card || 'sacrifice';
+    title += ` · ${card.charAt(0).toUpperCase() + card.slice(1)}`;
+  } else if (t.mode === 'boss_rush') {
+    title += ` · ${t.map} · Boss after gate ${t.boss_after}`;
   }
   const specialStage = t.mode === 'story' && (t.stage === 'Infinite' || t.stage === 'Mastery');
   const diff = ((t.mode === 'story' && !specialStage) || t.mode === 'expedition') ? t.difficulty
              : (d.fixedDifficulty || specialStage) ? 'Hard' : '';
   const meta = [
-    `×${t.repeat}`,
+    // Said in words as well as by the dimmed row, so a switched-off task
+    // reads as deliberate rather than broken.
+    t.enabled === false ? 'Off -- skipped' : '',
+    // Eclipse counts whole quest cycles, not stage repeats, so it says so in
+    // words instead of showing a bare "×3" next to it.
+    t.mode === 'eclipse' ? '' : `×${t.repeat}`,
     diff,
     (t.mode === 'story' && t.stage === 'Infinite')
       ? `Stop after wave ${t.infinite_wave_limit || DEFAULT_INFINITE_WAVE_LIMIT}`
       : (t.mode === 'event' && t.stage === 'infinite')
         ? `Restart after wave ${t.infinite_wave_limit || DEFAULT_INFINITE_WAVE_LIMIT}` : '',
     t.tower_mode === 'traitless' ? 'Traitless' : '',
-    (t.mode === 'tournament' || t.mode === 'tower') ? '' : (t.play_mode === 'matchmaking' ? 'Matchmaking' : 'Solo'),
+    t.mode === 'eclipse' ? `${t.repeat || 1} cycle${(t.repeat || 1) === 1 ? '' : 's'}` : '',
+    (t.mode === 'tournament' || t.mode === 'tower' || t.mode === 'eclipse' || t.mode === 'boss_rush')
+      ? '' : (t.play_mode === 'matchmaking' ? 'Matchmaking' : 'Solo'),
     t.macro ? `▸ ${t.macro}` : '',
+    (t.mode === 'boss_rush' && t.boss_macro) ? `Boss ▸ ${t.boss_macro}` : '',
   ].filter(Boolean).join(' · ');
   return { title, meta };
 }
@@ -2838,8 +2939,9 @@ function taskSummary(t) {
 function renderQueueRow(t, idx) {
   const { title, meta } = taskSummary(t);
   const entering = enteringTaskIds.has(t.id) ? ' entering' : '';
+  const on = t.enabled !== false;
   return `
-    <div class="task-card${entering} ${t.id === selectedTaskId ? 'selected' : ''}" id="task_${t.id}"
+    <div class="task-card${entering} ${t.id === selectedTaskId ? 'selected' : ''} ${on ? '' : 'off'}" id="task_${t.id}"
          style="--tqc: ${TASK_MODE_COLORS[t.mode] || 'var(--brand)'};" onclick="selectTaskCard('${t.id}')">
       <span class="task-grip" onclick="event.stopPropagation()">&#10247;</span>
       <span class="tq-index">${idx + 1}</span>
@@ -2848,15 +2950,35 @@ function renderQueueRow(t, idx) {
         <div class="tq-title">${escapeHtml(title)}</div>
         <div class="tq-meta">${escapeHtml(meta)}</div>
       </div>
+      <button class="toggle-switch ${on ? 'on' : ''}" onclick="event.stopPropagation(); toggleTaskEnabled('${t.id}', this)"
+              data-tooltip="${on ? 'On -- click to skip this task without deleting it' : 'Off -- skipped by the run, click to play it again'}"></button>
       <button class="task-icon-btn clone" onclick="event.stopPropagation(); cloneTaskCard('${t.id}')" data-tooltip="Clone">&#10697;</button>
       <button class="task-icon-btn delete" onclick="event.stopPropagation(); removeTaskCard('${t.id}')" data-tooltip="Remove">&#10005;</button>
     </div>`;
 }
 
+function taskQueueCountLabel() {
+  if (!taskCards.length) return '';
+  const off = taskCards.filter(t => t.enabled === false).length;
+  return `${taskCards.length} task${taskCards.length === 1 ? '' : 's'}${off ? ` · ${off} off` : ''}`;
+}
+
+// Switch a task off (or back on) without deleting it: it keeps its place and
+// settings and the run just skips it. Patched in place like any other edit,
+// so the row keeps its position and nothing else re-animates.
+function toggleTaskEnabled(id, btn) {
+  const t = findTask(id);
+  if (!t) return;
+  t.enabled = t.enabled === false;
+  if (btn) bounceToggle(btn);
+  updateQueueRowInPlace(t);
+  saveTaskQueue();
+}
+
 function renderTaskList() {
   const el = document.getElementById('task-list');
   const countEl = document.getElementById('task-queue-count');
-  if (countEl) countEl.textContent = taskCards.length ? `${taskCards.length} task${taskCards.length === 1 ? '' : 's'}` : '';
+  if (countEl) countEl.textContent = taskQueueCountLabel();
   if (!el) return;
   el.innerHTML = taskCards.length === 0
     ? '<div class="rh-empty">No tasks yet -- click "+ Add Task" to queue one.</div>'
@@ -2878,6 +3000,16 @@ function updateQueueRowInPlace(t) {
   const metaEl = el.querySelector('.tq-meta');
   if (titleEl) titleEl.textContent = title;
   if (metaEl) metaEl.textContent = meta;
+  const on = t.enabled !== false;
+  el.classList.toggle('off', !on);
+  const toggle = el.querySelector('.toggle-switch');
+  if (toggle) {
+    toggle.classList.toggle('on', on);
+    toggle.setAttribute('data-tooltip', on ? 'On -- click to skip this task without deleting it'
+                                           : 'Off -- skipped by the run, click to play it again');
+  }
+  const countEl = document.getElementById('task-queue-count');
+  if (countEl) countEl.textContent = taskQueueCountLabel();
 }
 
 // The right-hand editor: every control gets a caption so nothing has to be
@@ -2920,6 +3052,23 @@ function renderTaskBuilder() {
       'The portal to run, as printed on its card -- typed into the Inventory > Portals search on every pick (e.g. "summer")'));
   } else if (t.mode === 'tournament') {
     fields.push(field('Type', sel('map', d.maps, null, 'Select the Tournament type to enter'), 'Select the Tournament type to enter'));
+  } else if (t.mode === 'eclipse') {
+    fields.push(field('Card',
+      sel('eclipse_card', d.cards, c => c.charAt(0).toUpperCase() + c.slice(1),
+          'Which card to take every time the Eclipse event offers one'),
+      'Which card to take every time the event offers one. It decides which souls drop, '
+      + 'and one repeat here is a whole quest cycle: accept, farm until the stack caps, hand in.'));
+  } else if (t.mode === 'boss_rush') {
+    fields.push(field('Map', sel('map', d.maps, null, 'Select the Boss Rush map')));
+    fields.push(field('Boss After Gate',
+      sel('boss_after', d.bossAfter, g => 'Gate ' + g, 'Press Fight Boss after this gate'),
+      'Clears this many gates, then presses Fight Boss instead of Continue (the game offers it from gate 2, and forces it after gate 6)'));
+    const needed = gateRoutesNeeded(t);
+    const recorded = gateRoutesCovered(t);
+    fields.push(field('Gate Paths',
+      `<button class="task-toolbar-btn ${recorded < needed ? 'danger' : ''}" onclick="openGatePaths('${t.id}')">`
+      + `Gate Paths (${recorded}/${needed})</button>`,
+      'One recorded walk per gate, each from the spawn to the gate'));
   } else if (t.mode === 'tower') {
     // Tower has no map choice in-game -- map stays at its internal default.
     const towerMode = t.tower_mode || 'normal';
@@ -2955,9 +3104,9 @@ function renderTaskBuilder() {
       `Number of extraction prompts to decline before extracting (maximum ${MAX_EXTRACT_AFTER})`));
   }
 
-  // Tournament and Tower have no Solo/Matchmaking choice -- their runner paths
-  // force the solo Start tail, so the toggle would be a no-op here.
-  if (t.mode !== 'tournament' && t.mode !== 'tower') {
+  // Tournament, Tower and Boss Rush have no Solo/Matchmaking choice -- their
+  // runner paths force the solo Start tail, so the toggle would be a no-op.
+  if (t.mode !== 'tournament' && t.mode !== 'tower' && t.mode !== 'boss_rush') {
     const playSeg = `
       <div class="seg-toggle" data-tooltip="Select Solo or Matchmaking / Party mode">
         <button type="button" class="seg-btn ${t.play_mode === 'solo' ? 'active' : ''}" onclick="setTaskProp('${t.id}', 'play_mode', 'solo'); renderTaskBuilder()">Solo</button>
@@ -2976,8 +3125,20 @@ function renderTaskBuilder() {
   // Infinite & Fishing runs unlimited waves, so it needs an Autoplay Macro
   // Operation to keep going; every other mode keeps the plain label.
   const macroLabel = (t.mode === 'event' && t.stage === 'infinite')
-    ? 'Macro Operation (Must be Autoplay)' : 'Macro Operation';
+    ? 'Macro Operation (Must be Autoplay)'
+    : t.mode === 'boss_rush' ? 'Macro Operation (Gates)' : 'Macro Operation';
   fields.push(field(macroLabel, macroSel, 'Select a pre-start placement macro template'));
+  if (t.mode === 'boss_rush') {
+    // The boss arena starts empty, so the units are placed a second time --
+    // usually at different spots than in the gates.
+    const bossSel = `
+      <select class="task-select" onchange="setTaskProp('${t.id}', 'boss_macro', this.value)" data-tooltip="Places the units again in the boss arena">
+        <option value="">Same as Gates</option>
+        ${taskTemplates.map(n => `<option value="${escapeHtml(n)}" ${n === t.boss_macro ? 'selected' : ''}>&#9654; ${escapeHtml(n)}</option>`).join('')}
+      </select>`;
+    fields.push(field('Macro Operation (Boss)', bossSel,
+      'The boss arena starts empty -- this places every unit again. "Same as Gates" reuses the one above'));
+  }
 
   // Auto Fishing. Offered on every mode -- fishing is a map property, not a
   // mode one, and the same water point can be wanted on any map that has
@@ -3016,11 +3177,14 @@ function renderTaskBuilder() {
     ? `<div class="wh-hint"><b>Stop After Wave</b> completes the wave you enter, waits for the counter to advance once, then uses Leave Stage and returns to the lobby. For example, 20 leaves when wave 21 begins.</div>`
     : (t.mode === 'event' && t.stage === 'infinite')
       ? `<div class="wh-hint"><b>Restart After Wave</b> completes the wave you enter, waits for the counter to advance once, then restarts the game from Settings (Restart Game) -- your units stay placed -- and presses Start Game again. Each restart counts as one repeat. It leaves the stage instead on the task's last repeat, when Challenge, Crafting, Fuel, Shop or a Roblox refresh is due, or if the restart does not go through. For example, 20 restarts when wave 21 begins. Needs the <code>restart_btn</code> and <code>restart_confirm</code> crops (Settings &gt; General &gt; Image Manager).</div>` : '';
+  const bossRushHint = t.mode === 'boss_rush'
+    ? `<div class="wh-hint">One repeat is one whole run: Start Game at the spawn, then for each gate up to <b>Boss After Gate</b> -- walk its path, E, Start Game, clear it, take the middle card -- and after that gate Fight Boss. The Gates Macro Operation places your units in the first gate; they stay placed for the later ones. The boss arena starts empty, so the Boss Macro Operation places them again. Needs the <code>boss_rush</code> crops -- each <code>Assets/ui/boss_rush*</code> folder has a <code>_WHAT_TO_CROP.txt</code>.</div>` : '';
   el.innerHTML = `
     <div class="task-builder-grid">${fields.join('')}</div>
     ${extractHint}
     ${infiniteHint}
-    ${t.fishing ? `<div class="wh-hint">Auto Fishing casts at the Water Point while the round runs, and stops when it ends. It does not move your character -- park it at the water with a Walk Path block in the Macro Operation, which also re-runs after a Challenge interleave. Needs <code>fishing_rod</code> and <code>fishing_xp</code> crops (Settings &gt; General &gt; Image Manager).</div>` : ''}
+    ${bossRushHint}
+    ${t.fishing ? `<div class="wh-hint">Auto Fishing casts at the Water Point while the round runs, and stops when it ends. It does not move your character -- park it at the water with a Walk Path block in the Macro Operation, which also re-runs after a Challenge interleave. Needs <code>fishing_rod</code> and <code>fishing_xp</code> crops (Settings &gt; General &gt; Image Manager). A catch lands in the 6 fish slots and pays nothing until it is dealt with: add a crop per fish to <code>wanted_fish</code> (clicked once to cash in) and <code>unwanted_fish</code> (dragged to the bin). Pick the slot row once under Settings &gt; Debug &gt; Macro Coordinates &gt; Fish Slots. Without that, or with the folders empty, the slots are left alone.</div>` : ''}
     <div class="wh-hint" style="margin-top: 8px;">The macro's Team Loadout comes from its template (Macro Manager tab).</div>
     <div class="flex items-center gap-2" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
       <button class="task-toolbar-btn add" onclick="cloneTaskCard('${t.id}')">&#10697; Clone Task</button>
@@ -3031,6 +3195,7 @@ function renderTaskBuilder() {
 
 async function refreshTaskQueue() {
   await refreshTaskTemplates();
+  await refreshBossRushDefaultRoutes();
   try {
     // Merge over defaults, then migrate tasks saved by the old form-based
     // Task screen: team was null instead of '', stage was a number, and
@@ -3051,6 +3216,7 @@ async function refreshTaskQueue() {
     taskCards = rawTasks.filter(t => TASK_DATA[t.mode]).map(saved => {
       const t = { ...defaultTask(), ...saved };
       if (t.team == null) t.team = '';
+      t.enabled = t.enabled !== false;
       const normalizedExtractAfter = normalizeExtractAfter(t.extract_after);
       if (String(t.extract_after ?? '').trim() !== normalizedExtractAfter) {
         repairedExtractAfter++;
@@ -3109,7 +3275,7 @@ async function refreshTaskQueue() {
     const d = TASK_DATA[t.mode];
     let s = d.label;
     if (t.mode === 'story' || t.mode === 'raid') s += ` · ${t.map} · ${/^\d+$/.test(t.stage) ? 'Stage ' + t.stage : t.stage}`;
-    if (t.mode === 'expedition') s += ` · ${t.map}`;
+    if (t.mode === 'expedition' || t.mode === 'boss_rush') s += ` · ${t.map}`;
     return `${s} ×${t.repeat}`;
   }
 
@@ -4582,6 +4748,8 @@ const MACRO_COORD_KEYS = [
   'expedition_difficulty_x', 'expedition_difficulty_y',
   'team_loadout_x', 'team_loadout_y', 'team_loadout_row_height',
   'team_button_x', 'team_button_y',
+  'fish_slot_x', 'fish_slot_y', 'fish_slot_step',
+  'fish_trash_x', 'fish_trash_y',
   'portal_search_x', 'portal_search_y',
   'portal_list_x', 'portal_list_y', 'portal_list_w', 'portal_list_h',
   'screen_middle_x', 'screen_middle_y',
@@ -4652,6 +4820,7 @@ async function openTaskPointPicker(taskId, prefix) {
   puState.coordTarget = null;
   puState.taskTarget = { id: taskId, prefix };
   puState.coordHeightKey = null;
+  puState.coordAcross = false;
   puState.coordIsRegion = false;
   puState.coordStep = null;
   puState.coordFirst = null;
@@ -4683,8 +4852,13 @@ async function openCoordPicker(prefix) {
   // step 1 = waiting for row 2. The height key isn't uniform (stage_row ->
   // stage_row_height, but team_loadout -> team_loadout_row_height), so both
   // suffixes are probed rather than reconstructed.
-  puState.coordHeightKey = [`${prefix}_height`, `${prefix}_row_height`]
+  puState.coordHeightKey = [`${prefix}_height`, `${prefix}_row_height`, `${prefix}_step`]
     .find(k => document.getElementById(`coord-${k}`)) || null;
+  // Rows run DOWN the screen, the fish slots run ACROSS it. Same two-click
+  // pick either way; only which axis the gap is measured on differs, and a
+  // `_step` companion is what says "this one is a column".
+  puState.coordAcross = puState.coordHeightKey
+    ? puState.coordHeightKey.endsWith('_step') : false;
   // A target with _w and _h companions is a REGION, not a point: the two
   // clicks are its opposite corners rather than two rows. Same two-step
   // machinery, different arithmetic at the end.
@@ -4706,7 +4880,9 @@ async function openCoordPicker(prefix) {
   grid.style.display = '';
   grid.innerHTML = '<div class="rh-empty">Capturing the Roblox screen...</div>';
   document.getElementById('pu-pos-readout').textContent = puState.coordHeightKey
-    ? 'Click the FIRST row (e.g. Level 1 / Act 1 / Loadout 1)'
+    ? (puState.coordAcross
+        ? 'Click the CENTRE of slot 1'
+        : 'Click the FIRST row (e.g. Level 1 / Act 1 / Loadout 1)')
     : puState.coordIsRegion
       ? 'Click the TOP-LEFT corner of the area'
       : (puState.markX != null ? `X ${puState.markX}, Y ${puState.markY}` : 'Not set');
@@ -4739,23 +4915,28 @@ let pendingRecordingTarget = null;
 function stopActiveRecording() {
   if (recordingBlockId) toggleRecordPath(recordingBlockId);
   else if (recordingFuelPathKey) toggleRecordFuelPath(recordingFuelPathKey);
+  else if (recordingGatePath) toggleRecordGatePath(recordingGatePath.taskId, recordingGatePath.gate);
   else if (recordingMacroBlockId) toggleRecordMacro(recordingMacroBlockId);
 }
 
+const RECORDING_LOG_TAGS = { fuel: 'Fuel', gate: 'Boss Rush', block: 'Macro Manager' };
+
 async function startRecordingTarget(target) {
-  if (recordingBlockId || recordingFuelPathKey || recordingMacroBlockId) return;
+  if (recordingBlockId || recordingFuelPathKey || recordingMacroBlockId || recordingGatePath) return;
   closeFuelPaths();
+  closeGatePaths();
   switchScreen('dashboard');
   await new Promise(resolve => setTimeout(resolve, 200));
   try {
     const result = await pywebview.api.start_path_recording();
     if (result.ok) {
       if (target.kind === 'fuel') recordingFuelPathKey = target.pathKey;
+      else if (target.kind === 'gate') recordingGatePath = { taskId: target.taskId, gate: target.gate };
       else recordingBlockId = target.blockId;
       const textEl = document.getElementById('rec-popout-text');
       if (textEl) textEl.textContent = 'Recording path (WASD + I/O) - timer starts on your first key';
       document.getElementById('rec-popout').style.display = 'flex';
-      addLog(`[${target.kind === 'fuel' ? 'Fuel' : 'Macro Manager'}] Recording path -- walk with WASD (I/O also recorded, timer starts on your first key), then click Stop Recording.`);
+      addLog(`[${RECORDING_LOG_TAGS[target.kind] || 'Macro Manager'}] Recording path -- walk with WASD (I/O also recorded, timer starts on your first key), then click Stop Recording.`);
     } else {
       addLog(`[Path Recorder] Couldn't start recording: ${result.reason || 'error'}`);
     }
@@ -4768,6 +4949,7 @@ async function stopRecordingTarget(target) {
   pendingRecordingTarget = target;
   recordingBlockId = null;
   recordingFuelPathKey = null;
+  recordingGatePath = null;
   document.getElementById('rec-popout').style.display = 'none';
   // Stop the physical-key poll before opening the name field, otherwise
   // typing WASD into the field would append fake movement to the route.
@@ -4779,6 +4961,7 @@ async function stopRecordingTarget(target) {
     addLog('[Path Recorder] Nothing recorded -- no movement detected.');
     try { await pywebview.api.discard_pending_path(); } catch (e) {}
     pendingRecordingTarget = null;
+    reopenRecordingOwner(target);
     return;
   }
   const input = document.getElementById('path-name-input');
@@ -4825,6 +5008,9 @@ async function savePathName() {
         await pywebview.api.set_fuel_path(pendingRecordingTarget.pathKey, result.name);
         await refreshFuelScreen();
         addLog(`[Fuel] Saved and assigned path "${result.name}".`);
+      } else if (pendingRecordingTarget && pendingRecordingTarget.kind === 'gate') {
+        setGatePath(pendingRecordingTarget.taskId, pendingRecordingTarget.gate, result.name);
+        addLog(`[Boss Rush] Saved path "${result.name}" as gate ${pendingRecordingTarget.gate}.`);
       } else {
         const blockId = pendingRecordingTarget && pendingRecordingTarget.blockId;
         const loc = blockId ? findBlockLocation(blockId) : null;
@@ -4839,17 +5025,160 @@ async function savePathName() {
       addLog(`[Path Recorder] Couldn't save path: ${result.reason || 'error'}`);
     }
   } catch (e) {}
+  const target = pendingRecordingTarget;
   pendingRecordingTarget = null;
   renderPhases();
+  reopenRecordingOwner(target);
 }
 
 async function discardPathRecording() {
   document.getElementById('path-name-modal').style.display = 'none';
   restoreGameIfDashboard();
   try { await pywebview.api.discard_pending_path(); } catch (e) {}
+  const target = pendingRecordingTarget;
   pendingRecordingTarget = null;
   addLog('[Path Recorder] Recording discarded.');
   renderPhases();
+  reopenRecordingOwner(target);
+}
+
+// The Gate Paths dialog closes for a recording (the game has to be visible)
+// and would otherwise stay closed with five more gates to go -- bring it
+// back once the recording is saved or dropped. Only after the name modal is
+// gone: both are overlays, and the Gate Paths one sits later in the page, so
+// it would cover the name field.
+function reopenRecordingOwner(target) {
+  if (target && target.kind === 'gate') openGatePaths(target.taskId);
+}
+
+// ---------------------------------------------------------------------------
+// Boss Rush gate paths: one recorded walk per gate, each from the spawn to
+// that gate, stored on the task itself (t.gate_paths) -- a second Boss Rush
+// map later is just a second task with its own set. Recorded through the
+// same recorder and naming modal as Walk Path blocks and Auto Fuel routes.
+// ---------------------------------------------------------------------------
+let gatePathsTaskId = null;
+let recordingGatePath = null;  // { taskId, gate } while a gate walk records
+// Map -> { gates: [...], sprint } shipped in Paths/defaults. A gate the task
+// leaves unset walks the shipped route (BossRushOps._boss_rush_routes), so
+// these count as covered in the dialog and the Builder's counter.
+let bossRushDefaultRoutes = {};
+
+async function refreshBossRushDefaultRoutes() {
+  try { bossRushDefaultRoutes = await pywebview.api.get_boss_rush_default_gate_paths() || {}; }
+  catch (e) { bossRushDefaultRoutes = {}; }
+}
+
+function gateDefaultRoute(t, gate) {
+  const shipped = bossRushDefaultRoutes[t && t.map];
+  return (shipped && Array.isArray(shipped.gates) && shipped.gates[gate - 1]) || '';
+}
+
+// Gates up to Boss After Gate that have a route: the task's own or a shipped one.
+function gateRoutesCovered(t) {
+  return gatePathList(t).slice(0, gateRoutesNeeded(t))
+    .filter((name, i) => name || gateDefaultRoute(t, i + 1)).length;
+}
+
+function gatePathList(t) {
+  const raw = Array.isArray(t && t.gate_paths) ? t.gate_paths : [];
+  const list = raw.slice(0, BOSS_RUSH_GATE_COUNT).map(n => String(n || ''));
+  while (list.length < BOSS_RUSH_GATE_COUNT) list.push('');
+  return list;
+}
+
+// Only the gates up to Boss After Gate are ever walked. Clamped the same way
+// the runner clamps it (BossRushOps._boss_rush_boss_gate).
+function gateRoutesNeeded(t) {
+  const n = parseInt(t && t.boss_after, 10);
+  const first = Number(TASK_DATA.boss_rush.bossAfter[0]);
+  return Math.min(BOSS_RUSH_GATE_COUNT, Math.max(first, Number.isFinite(n) ? n : first));
+}
+
+async function openGatePaths(taskId) {
+  if (!findTask(taskId)) return;
+  gatePathsTaskId = taskId;
+  await refreshSavedPaths();
+  renderGatePaths();
+  const modal = document.getElementById('gate-paths-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeGatePaths() {
+  const modal = document.getElementById('gate-paths-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function setGatePath(taskId, gate, name) {
+  const t = findTask(taskId);
+  if (!t) return;
+  // A fresh array on every edit: Clone Task copies a task shallowly, so
+  // writing into the shared array would change the clone's routes too.
+  const list = gatePathList(t);
+  list[gate - 1] = name || '';
+  t.gate_paths = list;
+  saveTaskQueue();
+  if (selectedTaskId === taskId) renderTaskBuilder();
+  renderGatePaths();
+}
+
+// The recorder captures WASD but not Shift, so a route walked at sprint speed
+// only reaches its gate if it is replayed sprinting too -- same switch the
+// Walk Path block has, once for all gates of the task.
+function setGateSprint(on) {
+  const t = findTask(gatePathsTaskId);
+  if (!t) return;
+  t.gate_sprint = !!on;
+  saveTaskQueue();
+  renderGatePaths();
+}
+
+function renderGatePaths() {
+  const list = document.getElementById('gate-path-list');
+  const t = findTask(gatePathsTaskId);
+  if (!list || !t) return;
+  const title = document.getElementById('gate-paths-title');
+  if (title) title.textContent = `Boss Rush Gate Paths · ${t.map}`;
+  const needed = gateRoutesNeeded(t);
+  list.innerHTML = gatePathList(t).map((current, i) => {
+    const gate = i + 1;
+    const shipped = gateDefaultRoute(t, gate);
+    const unsetLabel = shipped ? `Default (${shipped})` : 'Not assigned';
+    const options = [`<option value="">${escapeHtml(unsetLabel)}</option>`].concat(
+      savedPaths.map(name => `<option value="${escapeHtml(name)}" ${name === current ? 'selected' : ''}>${escapeHtml(name)}</option>`)
+    ).join('');
+    const recording = recordingGatePath && recordingGatePath.taskId === t.id && recordingGatePath.gate === gate;
+    const used = gate <= needed;
+    const desc = !used ? `Not walked (boss after gate ${needed})`
+      : current ? 'Path assigned'
+      : shipped ? 'Using the shipped route' : 'Recording required';
+    return `<div class="fuel-path-row" style="${used ? '' : 'opacity: 0.55;'}">
+      <div>
+        <div class="setting-label">Spawn to Gate ${gate}</div>
+        <div class="setting-desc">${desc}</div>
+      </div>
+      <select class="task-select" onchange="setGatePath('${t.id}', ${gate}, this.value)">${options}</select>
+      <button class="task-toolbar-btn ${recording ? 'danger' : ''}" onclick="toggleRecordGatePath('${t.id}', ${gate})">${recording ? 'Stop' : 'Record'}</button>
+    </div>`;
+  }).join('');
+  const sprint = document.getElementById('gate-path-sprint');
+  if (sprint) {
+    sprint.innerHTML = `
+      <button type="button" class="seg-btn ${t.gate_sprint ? '' : 'active'}" onclick="setGateSprint(false)">Walk</button>
+      <button type="button" class="seg-btn ${t.gate_sprint ? 'active' : ''}" onclick="setGateSprint(true)">Sprint</button>`;
+  }
+}
+
+async function toggleRecordGatePath(taskId, gate) {
+  if (recordingGatePath && recordingGatePath.taskId === taskId && recordingGatePath.gate === gate) {
+    const t = findTask(taskId);
+    await stopRecordingTarget({
+      kind: 'gate', taskId, gate, returnScreen: 'task',
+      suggestedName: `Boss Rush - ${t ? t.map : 'Map'} - Gate ${gate}`,
+    });
+    return;
+  }
+  await startRecordingTarget({ kind: 'gate', taskId, gate, returnScreen: 'task' });
 }
 
 // ---------------------------------------------------------------------------
@@ -4879,7 +5208,7 @@ async function toggleRecordMacro(blockId) {
     setTimeout(() => { if (input) { input.focus(); } }, 50);
     return;
   }
-  if (recordingBlockId || recordingFuelPathKey || recordingMacroBlockId) return;
+  if (recordingBlockId || recordingFuelPathKey || recordingMacroBlockId || recordingGatePath) return;
   switchScreen('dashboard');
   await new Promise(resolve => setTimeout(resolve, 200));
   try {
@@ -5667,7 +5996,7 @@ let puState = {
   // coordIsRegion turns the same two-step flow into a corner pick that
   // writes x/y/w/h instead of a point plus a row height.
   coordHeightKey: null, coordStep: null, coordFirst: null, coordPreview: null,
-  coordIsRegion: false,
+  coordIsRegion: false, coordAcross: false,
   // Third pick target: a TASK's own fields (Auto Fishing's water point).
   // Settings coordinates are global and block params belong to a template --
   // a per-task point is neither, so it gets its own target rather than being
@@ -5762,6 +6091,7 @@ function closePlaceUnitModal() {
   puState.coordTarget = null;
   puState.taskTarget = null;
   puState.coordHeightKey = null;
+  puState.coordAcross = false;
   puState.coordStep = null;
   puState.coordFirst = null;
   puState.coordIsRegion = false;
@@ -6014,20 +6344,41 @@ function applyPlaceUnitPosition() {
         // Bulk atomic save -- x and y in one write, no race (see set_macro_coords).
         saveMacroCoords({ [`${p}_x`]: puState.markX, [`${p}_y`]: puState.markY });
         puState.coordStep = 1;
-        readout.textContent = `Row 1 set (X ${puState.markX}, Y ${puState.markY}). Now click the SECOND row down.`;
+        readout.textContent = puState.coordAcross
+          ? `Slot 1 set (X ${puState.markX}, Y ${puState.markY}). Now click the CENTRE of slot 2.`
+          : `Row 1 set (X ${puState.markX}, Y ${puState.markY}). Now click the SECOND row down.`;
         return;
       }
-      // Step 1: height = vertical gap; base stays row 1 (already saved).
-      const h = Math.abs(puState.markY - puState.coordFirst.y);
+      // Step 1: the gap IS the spacing -- measured across for a slot row,
+      // down for everything else. The base stays point 1 (already saved).
+      const h = puState.coordAcross
+        ? Math.abs(puState.markX - puState.coordFirst.x)
+        : Math.abs(puState.markY - puState.coordFirst.y);
+      if (h < 1) {
+        readout.textContent = 'That is the same spot as the first click -- click the NEXT one along.';
+        return;
+      }
       const hEl = document.getElementById(`coord-${puState.coordHeightKey}`);
       if (hEl) hEl.value = h;
       saveMacroCoords({ [puState.coordHeightKey]: h });
-      // Preview every derived row so the math is visible before you trust it.
+      // Preview every derived position so the math is visible before you
+      // trust it. A slot row has exactly 6, and the 7th mark is the bin the
+      // unwanted fish get dragged onto -- the one derived point that is not
+      // a slot, and the one worth seeing before a drag aims at it.
       const rows = [];
-      for (let i = 0; i < 7; i++) rows.push({ x: puState.coordFirst.x, y: puState.coordFirst.y + i * h, label: `${i + 1}` });
+      const count = puState.coordAcross ? FISH_SLOT_COUNT + 1 : 7;
+      for (let i = 0; i < count; i++) {
+        rows.push({
+          x: puState.coordFirst.x + (puState.coordAcross ? i * h : 0),
+          y: puState.coordFirst.y + (puState.coordAcross ? 0 : i * h),
+          label: (puState.coordAcross && i === FISH_SLOT_COUNT) ? 'Bin' : `${i + 1}`,
+        });
+      }
       puState.coordPreview = rows;
-      puState.coordStep = 0;  // click again to redo from row 1
-      readout.textContent = `Rows set: base (X ${puState.coordFirst.x}, Y ${puState.coordFirst.y}), row height ${h}px. Click row 1 again to redo.`;
+      puState.coordStep = 0;  // click again to redo from point 1
+      readout.textContent = puState.coordAcross
+        ? `Slots set: slot 1 (X ${puState.coordFirst.x}, Y ${puState.coordFirst.y}), step ${h}px. Click slot 1 again to redo.`
+        : `Rows set: base (X ${puState.coordFirst.x}, Y ${puState.coordFirst.y}), row height ${h}px. Click row 1 again to redo.`;
       return;
     }
 

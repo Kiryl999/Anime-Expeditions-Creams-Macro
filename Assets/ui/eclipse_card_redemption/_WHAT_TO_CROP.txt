@@ -1,0 +1,30 @@
+eclipse_card_redemption -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "eclipse_card_redemption.png" in THIS folder.
+
+What to crop:
+  The Redemption card as it appears in the mid-battle card choice.
+  Crop the part that IDENTIFIES it -- its name banner or its icon -- not
+  the whole card, whose body text/stat rolls change between offers.
+
+Where/how:
+  Inside the Eclipse event, every few waves the three cards come up.
+
+Used by:
+  Picking the card the task is configured for. A card's position in the
+  row is not fixed, so each is found by image and clicked where it was
+  found.
+
+Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
+Roblox, drag a box around it, type the name
+"eclipse_card_redemption", Save Crop -- that writes the file here and no restart is needed. A hand-made PNG dropped in here works
+too; use Settings > "Reload Vision Images" afterwards so the cache picks it up.
+
+Crop TIGHTLY, with as little surrounding background as possible. More crops
+of the SAME thing can be added here under any other .png name (e.g.
+"eclipse_card_redemption_alt2.png") -- all of them are tried before the
+search gives up, which is how you fix an element that renders slightly
+differently on your setup.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

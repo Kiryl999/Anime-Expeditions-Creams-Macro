@@ -53,13 +53,19 @@ SHIPPED_DEFAULT_WALK_PATHS_FILE = os.path.join(constants.ASSETS_DIR, "default_wa
 SHIPPED_ENCOUNTER_WALK_PATHS_FILE = os.path.join(constants.ASSETS_DIR, "default_encounter_walk_paths.json")
 
 _POLL_INTERVAL = 0.03  # 30ms -- well under human key-tap duration, cheap enough to poll forever
-# W/A/S/D for movement, I/O for whatever in-game action a recorded route
-# needs alongside walking (e.g. an interact/use key at a specific point) --
-# recorded, replayed, and released-on-exit identically to the movement keys,
-# since every place below just iterates this same dict.
+# W/A/S/D for movement, plus E/I/O for whatever in-game action a recorded
+# route needs alongside walking -- recorded, replayed, and
+# released-on-exit identically to the movement keys, since every place
+# below just iterates this same dict.
+#
+# E is the game's INTERACT key: a route that walks to an NPC and talks to
+# it (the secret-unit quest line starts that way) is one recording, not a
+# walk followed by a separate Send Key block that would have to guess how
+# long the walk took. Paths recorded before E was watched simply have no
+# E events in them and replay exactly as they did.
 _WATCHED_KEYS = {
     "w": ord("W"), "a": ord("A"), "s": ord("S"), "d": ord("D"),
-    "i": ord("I"), "o": ord("O"),
+    "e": ord("E"), "i": ord("I"), "o": ord("O"),
 }
 
 
@@ -206,6 +212,31 @@ _BUILTIN_ENCOUNTER_WALK_PATHS = {
     "Flower Forest": "Expedition Encounter - Flower Forest",
     "East Town": "Expedition Encounter - East Town",
 }
+
+
+# Boss Rush: one spawn->gate route per gate, per map, in gate order -- the
+# recordings live in Paths/defaults like the walks above, so a Boss Rush task
+# runs with nothing recorded first. A gate the task leaves unset falls back to
+# its entry here; a route the task sets itself always wins.
+#
+# `sprint` belongs to the RECORDINGS, not to whoever uses them: these were
+# walked sprinting and only reach their gate replayed that way, whatever the
+# task's own sprint switch says (that switch is for the task's own routes).
+_BUILTIN_BOSS_RUSH_GATE_PATHS = {
+    "District 7": {
+        "sprint": True,
+        "gates": [f"Boss Rush - District 7 - Gate {n}" for n in range(1, 7)],
+    },
+}
+
+
+def shipped_boss_rush_gate_paths(map_name: str) -> dict:
+    """{"gates": [route per gate], "sprint": bool} shipped for `map_name`.
+
+    A map with nothing shipped gets no gates, so callers treat every gate as
+    "record it yourself" rather than failing."""
+    entry = _BUILTIN_BOSS_RUSH_GATE_PATHS.get(map_name) or {}
+    return {"gates": list(entry.get("gates") or []), "sprint": bool(entry.get("sprint"))}
 
 
 def load_shipped_encounter_walk_paths() -> dict:

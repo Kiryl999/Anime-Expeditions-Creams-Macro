@@ -216,6 +216,14 @@ MACRO_COORD_DEFAULTS = {
     # costs a full timeout on every pick. See DEFAULT_COORDS.
     "portal_list_x": None, "portal_list_y": None,
     "portal_list_w": None, "portal_list_h": None,
+    # Fish inventory row (Tidal Siege). Slot 1's centre plus the step to the
+    # next slot describes all six; the bin defaults to one step PAST slot 6,
+    # which is where it sits. All unset = the slots are never touched, which
+    # is the shipped state -- see FISH_SLOT_COUNT for why nothing is guessed.
+    "fish_slot_x": None, "fish_slot_y": None, "fish_slot_step": None,
+    # Optional override for the bin. None = Auto: slot 1 + FISH_SLOT_COUNT
+    # steps. Set it when the bin is not exactly one slot-width past slot 6.
+    "fish_trash_x": None, "fish_trash_y": None,
     "screen_middle_x": 576, "screen_middle_y": 378,
     "unit_info_reset_x": 3, "unit_info_reset_y": 3,
 }
@@ -924,7 +932,8 @@ class Api:
     # Coordinates that mean "Auto" when unset, so the UI can offer an Auto
     # button next to their Pick. Every other macro coordinate has a real
     # default and is reset through reset_macro_coords instead.
-    OPTIONAL_COORD_PREFIXES = ("team_button", "portal_search", "portal_list")
+    OPTIONAL_COORD_PREFIXES = ("team_button", "portal_search", "portal_list",
+                               "fish_slot", "fish_trash")
 
     def clear_macro_coord(self, prefix: str) -> dict:
         """Clear an optional coordinate override back to automatic behavior.
@@ -975,6 +984,15 @@ class Api:
         # your own recording under the same name override the shipped one.
         from core import paths as walk_paths
         return {**walk_paths.load_shipped_default_walk_paths(), **cfg.load().get("default_walk_paths", {})}
+
+    def get_boss_rush_default_gate_paths(self) -> dict:
+        # Boss Rush map -> {"gates": [...], "sprint": bool}: the spawn->gate
+        # routes shipped in Paths/defaults, which a task's unset gates fall
+        # back to (see BossRushOps._boss_rush_routes). Read by the Task
+        # screen so the Gate Paths dialog can say which gates are covered.
+        from core import paths as walk_paths
+        from core.runner_constants import BOSS_RUSH_MAP_ORDER
+        return {name: walk_paths.shipped_boss_rush_gate_paths(name) for name in BOSS_RUSH_MAP_ORDER}
 
     def set_default_walk_path(self, map_name: str, path_name: str) -> dict:
         defaults = dict(cfg.load().get("default_walk_paths", {}))
@@ -2192,8 +2210,12 @@ class Api:
             have = set(tpl.list_templates())
         except OSError:
             have = set()
-        missing = sorted({t.get("macro") for t in tasks
-                          if isinstance(t, dict) and t.get("macro") and t.get("macro") not in have})
+        # boss_macro: a Boss Rush task places its units a second time, for
+        # the boss, with its own Macro Operation.
+        missing = sorted({name for t in tasks if isinstance(t, dict)
+                          for name in (t.get("macro"),
+                                       t.get("boss_macro") if t.get("mode") == "boss_rush" else None)
+                          if name and name not in have})
         label = data.get("name") or name
         # Three different empty-queue outcomes, each worth saying differently:
         # the file won't parse, there's no such preset, or it genuinely holds
@@ -3784,6 +3806,66 @@ class Api:
                 self.push_log(f"[Debug] Camera setup 3 done (drag down, {hold_ms:.0f}ms Left-arrow hold).")
             except Exception as exc:
                 self.push_log(f"[Debug] Camera setup 3 failed: {exc}")
+
+        threading.Thread(target=run, daemon=True).start()
+        return {"ok": True}
+
+    def debug_camera_yaw(self, label, action) -> dict:
+        # Settings > Debug > "Camera Yaw Check": the diagnostic behind
+        # "sometimes the map is visibly turned and the walk path runs the
+        # wrong way". Roblox movement is camera-relative and the spawn yaw
+        # varies between entries into the same map, which core.camera's
+        # setup (a straight-down drag) pins the pitch of but never the yaw
+        # -- see core.camera_yaw for the measurement.
+        #
+        # Three actions rather than one button: capturing a reference and
+        # comparing against it are genuinely different steps, and being able
+        # to measure WITHOUT correcting is the whole point while we are still
+        # establishing whether the offset is discrete (two spawn pads) or
+        # continuous.
+        hwnd = self.game_hwnd
+        if not hwnd or not wm.is_window(hwnd):
+            return {"ok": False, "reason": "no_roblox"}
+        label = (label or "").strip()
+        if not label:
+            return {"ok": False, "reason": "no_label"}
+        if action not in ("reference", "measure", "align"):
+            return {"ok": False, "reason": "bad_action"}
+
+        # Same focus dance as the Camera Setup buttons: the capture path is a
+        # plain screen grab of the visible window, and align presses arrow
+        # keys that only reach Roblox while it is foreground.
+        wm.show_window(hwnd)
+        wm.activate_window(hwnd)
+
+        def run():
+            from core import camera_yaw
+            try:
+                if action == "reference":
+                    saved = camera_yaw.save_reference(hwnd, label)
+                    if saved:
+                        self.push_log(f"[Debug] Camera yaw reference saved for '{label}'.")
+                    else:
+                        self.push_log(f"[Debug] Couldn't capture a yaw reference for '{label}'.")
+                    return
+
+                if action == "measure":
+                    result = camera_yaw.measure(hwnd, label)
+                    if result["ok"]:
+                        self.push_log(f"[Debug] Camera yaw for '{label}': "
+                                      f"{result['angle']:+.1f} deg off the reference "
+                                      f"(match score {result['score']:.2f}).")
+                    elif result.get("reason") == "no_reference":
+                        self.push_log(f"[Debug] No yaw reference for '{label}' yet -- "
+                                      "run Save Ref once first.")
+                    else:
+                        self.push_log(f"[Debug] Camera yaw check failed: {result.get('reason')} "
+                                      f"(best score {result['score']:.2f}).")
+                    return
+
+                camera_yaw.align(self.keyboard, hwnd, label, log=self.push_log)
+            except Exception as exc:
+                self.push_log(f"[Debug] Camera yaw {action} failed: {exc}")
 
         threading.Thread(target=run, daemon=True).start()
         return {"ok": True}

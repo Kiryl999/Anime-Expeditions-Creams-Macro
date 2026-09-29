@@ -322,7 +322,10 @@ def test_the_rod_watch_starts_fresh_every_match_and_every_run():
     previous match or run once kept fishing off until the app restarted."""
     import inspect
 
-    assert "_reset_fishing_for_match" in inspect.getsource(MacroRunner._play_one_match)
+    # The per-match reset lives in _begin_battle, which every match -- and
+    # Boss Rush's first gate and boss fight -- goes through.
+    assert "_reset_fishing_for_match" in inspect.getsource(MacroRunner._begin_battle)
+    assert "_begin_battle" in inspect.getsource(MacroRunner._play_one_match)
     assert "_reset_fishing_for_match" in inspect.getsource(MacroRunner._run)
 
 

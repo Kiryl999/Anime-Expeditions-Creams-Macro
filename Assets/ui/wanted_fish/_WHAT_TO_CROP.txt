@@ -1,0 +1,35 @@
+wanted_fish -- REFERENCE IMAGES STILL MISSING
+
+Put ONE crop PER wanted fish in THIS folder. Any name is fine
+("wanted_fish.png" first, then e.g. "golden_koi.png", "siege_tuna.png") --
+every .png in here is tried as an interchangeable variant, so a hit on ANY
+of them means "this slot holds a fish that pays".
+
+What to crop:
+  The fish's icon AS IT RENDERS IN THE FISH INVENTORY SLOT -- not the catch
+  banner, not the shop art. Crop the icon itself, tightly, with as little
+  of the slot frame around it as possible: the slot frame is identical for
+  every fish, so including it makes all fish look alike to the search.
+
+Where/how:
+  Fish during a Tidal Siege round until a wanted one is sitting in a slot,
+  then crop it out of the slot before cashing it in.
+
+Used by:
+  core/runner.py's _tick_fish_inventory. A match here means the slot is
+  left-clicked once, which cashes the fish in. The counterpart folder
+  Assets/ui/unwanted_fish/ marks the fish that get dragged onto the bin
+  instead -- an icon must not appear in both folders.
+
+Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
+Roblox, drag a box around the icon, type the name "wanted_fish", Save Crop
+-- that writes the file here and no restart is needed. Further fish are
+added by hand as extra .png files in this folder; use Settings > "Reload
+Vision Images" afterwards so the cache picks them up.
+
+While this folder holds no .png, the inventory check reports it once per
+match and leaves the slots alone -- casting and the rod watch keep running
+exactly as before.
+
+Delete this .txt once the first .png is in place; it only exists so the empty
+folder survives in git. It is ignored by the image search (only .png is read).

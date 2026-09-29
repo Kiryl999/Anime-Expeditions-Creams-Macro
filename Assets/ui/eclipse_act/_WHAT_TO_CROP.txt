@@ -1,0 +1,29 @@
+eclipse_act -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "eclipse_act.png" in THIS folder.
+
+What to crop:
+  The Eclipse symbol shown at the TOP of the act-selection screen, in
+  the row where the Acts are picked.
+
+Where/how:
+  Click the map that carries the marker -- the symbol is at the top of
+  the act picker.
+
+Used by:
+  Confirming the macro landed on the Eclipse variant of the stage and not
+  the map's ordinary acts, before it presses Start.
+
+Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
+Roblox, drag a box around it, type the name
+"eclipse_act", Save Crop -- that writes the file here and no restart is needed. A hand-made PNG dropped in here works
+too; use Settings > "Reload Vision Images" afterwards so the cache picks it up.
+
+Crop TIGHTLY, with as little surrounding background as possible. More crops
+of the SAME thing can be added here under any other .png name (e.g.
+"eclipse_act_alt2.png") -- all of them are tried before the
+search gives up, which is how you fix an element that renders slightly
+differently on your setup.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

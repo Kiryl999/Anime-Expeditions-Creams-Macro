@@ -1,0 +1,48 @@
+quest_dialog -- REFERENCE IMAGE NEEDED (capture this one early)
+
+Put a crop named exactly "quest_dialog.png" in THIS folder.
+
+What to crop:
+  A piece of the NPC dialog BOX that looks the SAME whichever quest state
+  you are in -- the NPC's name plate, or a fixed corner/edge of the dialog
+  frame.
+
+  That "same in every state" part is the whole requirement. Do NOT crop
+  the dialog TEXT, and do NOT crop a button: those change between states,
+  and this image's entire job is to say "the dialog is open" without
+  caring which dialog it is.
+
+Why it matters (this is not just a nicer error message):
+  Together with quest_accept it answers "is a quest already running?"
+  without needing any redeem crop at all:
+
+    dialog open + Accept button visible     -> no quest running, take one
+    dialog open + Accept button NOT visible -> a quest is running, go farm
+
+  That second line is what makes the cycle testable from day one. Reading
+  the state used to need a quest_redeem_* crop -- which you cannot
+  screenshot until you have already farmed 150 souls, which you cannot do
+  until the cycle runs. This image breaks that circle.
+
+  The macro still waits a moment after the frame appears before reading
+  the absence of the Accept button (the buttons animate in inside the
+  frame), so a slow dialog is not mistaken for a running quest.
+
+Where/how:
+  Crimson Shore, walk to the quest NPC and press E. Crop the name plate or
+  a frame corner. Check it against BOTH states if you can (one with a quest
+  running, one without) -- if your crop only matches one of them, it is
+  cropping something state-specific and needs to be tighter on the frame.
+
+Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
+Roblox, drag a box around it, type the name "quest_dialog", Save Crop -- that
+writes the file here and no restart is needed. A hand-made PNG dropped in here
+works too; use Settings > "Reload Vision Images" afterwards so the cache picks
+it up.
+
+Crop TIGHTLY, with as little surrounding background as possible. More crops of
+the SAME thing can be added here under any other .png name (e.g.
+"quest_dialog_alt2.png") -- all of them are tried before the search gives up.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

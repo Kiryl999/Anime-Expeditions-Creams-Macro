@@ -33,9 +33,11 @@ from .diagnostics import FailureCategory, RecoveryAction, FailureReport, create_
 from . import window as wm
 from .runner_constants import *  # noqa: F401,F403 -- see runner_constants' docstring
 from .runner_blocks import BlockOps
+from .runner_boss_rush import BossRushOps
 from .runner_bounty import BountyOps
 from .runner_challenge import ChallengeOps
 from .runner_crafting import CraftingOps
+from .runner_eclipse import EclipseOps
 from .runner_expedition import ExpeditionOps
 from .runner_event import EventOps
 from .runner_fuel import FuelOps
@@ -116,7 +118,8 @@ def _find_team_load_button(frame, expected_y):
     return cx, cy
 
 
-class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, ExpeditionOps, BlockOps, EventOps, PortalsOp):
+class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, ExpeditionOps,
+                   BlockOps, EventOps, PortalsOp, EclipseOps, BossRushOps):
     """One run's worth of state -- module-level singleton via main.Api, same
     pattern as core.paths._recorder, since only one run can realistically be
     active at a time (one physical game window, one macro)."""
@@ -769,6 +772,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._fishing_failed_attempts = 0    # rod clicks this match that did not bring it up
         self._fishing_retry_at = 0.0         # no rod click before this
         self._fishing_paused = False         # for the rest of this match
+        self._fish_next_look_at = 0.0        # when the fish inventory is read next
+        self._fish_inventory_paused = False  # a missing crop folder stops it for this match only
 
     def _ensure_rod_out(self, hwnd, stop_event: threading.Event = None) -> bool:
         """Whether the rod is out and casting may go ahead -- taking it out
@@ -906,6 +911,121 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                       f"every {interval:.0f}s.")
         self._last_fishing_cast_at = now
         self._mouse.click(*vision.ref_to_screen(hwnd, point[0], point[1]))
+
+    def _fish_row(self):
+        """(slot 1 centre, step) for the fish inventory row, or None when it
+        has not been picked yet.
+
+        All three numbers come from Settings > Debug > Macro Coordinates. An
+        unset row means the feature is OFF rather than guessed: there is no
+        default that could be right, and a made-up row would drag whatever
+        happens to sit at those pixels onto whatever sits where the bin was
+        assumed to be. A step of 0 is treated as unset for the same reason --
+        it would pile all six slots on top of each other.
+        """
+        x = self._coords.get("fish_slot_x")
+        y = self._coords.get("fish_slot_y")
+        step = self._coords.get("fish_slot_step")
+        if x in (None, "") or y in (None, "") or step in (None, ""):
+            return None
+        try:
+            x, y, step = int(x), int(y), int(step)
+        except (TypeError, ValueError):
+            return None
+        return ((x, y), step) if step > 0 else None
+
+    def _fish_slot_region(self, index: int) -> tuple:
+        """The search box around slot `index` (0-based), in reference space.
+
+        The row is evenly spaced, so every slot is slot 1 plus n steps.
+        """
+        (x, y), step = self._fish_row()
+        w, h = FISH_SLOT_BOX
+        return (int(x + index * step - w / 2), int(y - h / 2), w, h)
+
+    def _fish_trash_point(self) -> tuple:
+        """Where an unwanted fish is dragged TO.
+
+        Auto is one step past slot 6, which is where the bin sits. The
+        override exists because "one slot-width" is an assumption about the
+        gap, not something the row's own numbers can tell us -- and a drag
+        that lands beside the bin drops the fish back into the row.
+        """
+        x = self._coords.get("fish_trash_x")
+        y = self._coords.get("fish_trash_y")
+        if x not in (None, "") and y not in (None, ""):
+            return int(x), int(y)
+        (base_x, base_y), step = self._fish_row()
+        return base_x + FISH_SLOT_COUNT * step, base_y
+
+    def _tick_fish_inventory(self, hwnd, stop_event: threading.Event = None) -> bool:
+        """Empty the fish inventory: cash the wanted, bin the unwanted.
+
+        A catch does not pay out by itself -- it sits in one of the six slots
+        until it is dealt with, and six full slots take no more fish. Wanted
+        fish pay out on a single left-click; unwanted ones are dragged onto
+        the bin right of slot 6. Neither raises a dialog, so there is nothing
+        to close afterwards.
+
+        Read per SLOT rather than as one sweep of the whole row: a slot box
+        says which slot a hit belongs to without any position arithmetic, and
+        a neighbouring slot's card cannot match from it, since a match has to
+        fit whole inside the box (see FISH_SLOT_BOX) -- binning the wrong slot
+        throws away a paying fish.
+
+        Unwanted is asked FIRST and a hit ends that slot. A fish is one or the
+        other, and on the ambiguous frame (a half-drawn icon matching both
+        folders) the cheap mistake is clicking a fish that turns out to be
+        junk, not binning one that pays.
+
+        Never fatal, exactly like the rod watch: an unpicked row or a missing
+        crop folder is reported once and switches this off until the next
+        match, leaving the rest of fishing running.
+        """
+        if self._fish_inventory_paused:
+            return False
+        if self._fish_row() is None:
+            # Said once per match, not swallowed: "my fish are never cashed
+            # in" is otherwise indistinguishable from a bad crop.
+            self._log("[Macro] Fish inventory: the slot row isn't set -- pick slot 1 and slot 2 "
+                      "under Settings > Debug > Macro Coordinates > Fish Slots. Leaving the slots alone.")
+            self._fish_inventory_paused = True
+            return False
+        now = time.time()
+        if now < self._fish_next_look_at:
+            return False
+        self._fish_next_look_at = now + FISH_CHECK_INTERVAL
+
+        acted = False
+        for index in range(FISH_SLOT_COUNT):
+            if stop_event is not None and stop_event.is_set():
+                return acted
+            region = self._fish_slot_region(index)
+            try:
+                hit = vision.find_image(hwnd, FISH_UNWANTED_IMAGE, region=region)
+                unwanted = hit is not None
+                if hit is None:
+                    hit = vision.find_image(hwnd, FISH_WANTED_IMAGE, region=region)
+            except vision.TemplateNotFound as exc:
+                self._log(f"[Macro] Fish inventory: {exc} Not touching the slots this match.")
+                self._fish_inventory_paused = True
+                return acted
+            if hit is None:
+                continue
+
+            point = vision.ref_to_screen(hwnd, hit["cx"], hit["cy"])
+            if unwanted:
+                trash = vision.ref_to_screen(hwnd, *self._fish_trash_point())
+                self._log(f"[Macro] Fish inventory: slot {index + 1} holds an unwanted fish "
+                          f"(score {hit['score']:.2f}) -- dragging it to the bin.")
+                self._mouse.drag(point[0], point[1], trash[0], trash[1])
+            else:
+                self._log(f"[Macro] Fish inventory: slot {index + 1} holds a wanted fish "
+                          f"(score {hit['score']:.2f}) -- clicking it to cash it in.")
+                self._mouse.click(*point)
+            acted = True
+            time.sleep(FISH_SETTLE_DELAY)
+        return acted
 
     def _take_portal_offer_if_found(self, hwnd) -> bool:
         """Take the middle portal when the post-round offer is up.
@@ -1187,19 +1307,27 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # user may edit the Task screen (add/remove/reorder) between
             # passes expecting the NEXT pass to pick up their changes rather
             # than keep replaying a stale snapshot from when the run started.
-            tasks = get_tasks()
+            queued = get_tasks()
+            tasks = self._enabled_tasks(queued)
+            switched_off = len(queued or []) - len(tasks)
             if not tasks:
+                why = ("every task in the Task Queue is switched off" if queued
+                       else "the Task Queue is empty")
                 if bounty_enabled:
-                    self._log("[Macro] Auto Bounty pass finished and the Task Queue is empty -- going Idle.")
+                    self._log(f"[Macro] Auto Bounty pass finished and {why} -- going Idle.")
                 elif shop_enabled:
-                    self._log("[Macro] Auto Shop pass finished and the Task Queue is empty -- going Idle.")
+                    self._log(f"[Macro] Auto Shop pass finished and {why} -- going Idle.")
+                elif queued:
+                    self._log(f"[Macro] All {len(queued)} task(s) in the queue are switched off -- "
+                              "turn one on on the Task screen first.")
                 else:
                     self._log("[Macro] Task queue is empty -- add a task on the Task screen first.")
                 self._set_status(action="Idle")
                 return
 
             if loop_pass == 1:
-                self._log(f"[Macro] Starting run -- {len(tasks)} task(s) queued.")
+                self._log(f"[Macro] Starting run -- {len(tasks)} task(s) queued"
+                          + (f", {switched_off} switched off." if switched_off else "."))
             else:
                 self._log(f"[Macro] Task queue finished -- restarting from task 1 (pass {loop_pass}).")
 
@@ -1298,6 +1426,18 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
 
 
+    @staticmethod
+    def _enabled_tasks(tasks) -> list:
+        """The queue minus the tasks switched off on the Task screen.
+
+        Switched off, not deleted: the task keeps its place and every setting
+        and is simply not played until it is switched back on. Filtered here,
+        before the loop numbers anything, so "task 2/3" counts the tasks that
+        actually run. A task saved before the switch existed has no
+        `enabled` field and counts as on.
+        """
+        return [t for t in (tasks or []) if t.get("enabled", True) is not False]
+
     def _run_task(self, hwnd, stop_event: threading.Event, task: dict, task_index: int, task_count: int,
                    coords: dict, scroll_power: int, scroll_nudges: int, default_walk_paths: dict,
                    webhook: dict) -> bool:
@@ -1313,6 +1453,25 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         map_name = task.get("map")
         mode = task.get("mode") or "story"
         repeat_total = max(1, int(task.get("repeat") or 1))
+        # Eclipse is the one mode whose "task" is not a stage. One repeat is a
+        # whole quest CYCLE -- two visits to an NPC on one map with an unknown
+        # number of runs on a DIFFERENT, randomly chosen map in between -- so
+        # it cannot use the setup-once-then-repeat-the-match shape the rest of
+        # this method is built around, and owns its own loop instead. See
+        # core/runner_eclipse.py.
+        if mode == "eclipse":
+            return self._run_eclipse_task(hwnd, stop_event, task, task_index, task_count,
+                                          coords, scroll_power, scroll_nudges,
+                                          default_walk_paths, webhook)
+        if mode == "boss_rush":
+            # Refused up front, from disk, when a gate route or a crop the run
+            # needs is missing -- otherwise that surfaces minutes in, walking
+            # at a gate, and every recovery attempt pays for it again.
+            if not self._boss_rush_preflight(task):
+                return True
+            # Boss Rush has no party variant in the Task Builder; pinning Solo
+            # here keeps a stale field from sending it to Enter Matchmaking.
+            task = dict(task, play_mode="solo")
         progress_task = dict(task)
         progress_task["map"] = map_name or mode.title()
         # The running task, so mid-match handlers can ask which map they are
@@ -1913,6 +2072,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 # stepper, straight after the map.
                 self._interruptible_sleep(DIFFICULTY_CLICK_DELAY, stop_event)
                 self._select_expedition_difficulty(hwnd, stop_event, task.get("difficulty") or "1")
+            elif mode == "boss_rush":
+                # The map card is the whole selection: no stage row and no
+                # difficulty, straight on to Select Stage and Start.
+                pass
             else:
                 stage = task.get("stage") or "1"
                 if not self._select_stage(hwnd, stop_event, stage, mode):
@@ -2010,6 +2173,13 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         placed (see _restart_infinite_at_wave_limit). Returns "win"/"loss",
         an Infinite exit ("wave_limit"/"restarted"/"left"), or None on
         failure/stop."""
+        # A Boss Rush "match" is a whole run -- up to six gates and a boss,
+        # each with its own Start Game -- ending on the same Victory/Defeat
+        # screen as any other stage, so it slots in here and leaves the
+        # repeat, result and recovery handling around it untouched.
+        if task.get("mode") == "boss_rush":
+            return self._play_boss_rush_run(hwnd, stop_event, task, default_walk_paths,
+                                            first_repeat=first_repeat, webhook=webhook)
         if not self._start_game_or_reset_via_settings(hwnd, stop_event, task.get("play_mode")):
             return None
         if self._checkpoint(stop_event):
@@ -2025,14 +2195,35 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if self._checkpoint(stop_event):
                 return None
             self._log("[Macro] Pre Start finished -- starting the round.")
+        if not self._press_start_game(hwnd, stop_event, task, webhook):
+            return None
+
+        # Team Loadout (including its Include/Exclude equipment choice) is
+        # applied earlier in Pre Start -- see _apply_team_loadout.
+        self._set_status(action="Battle...")
+        self._log("[Macro] Moving into Battle.")
+
+        battle_blocks = self._begin_battle(task)
+        watch_close_popup = self._wants_close_popup_watch(task)
+        return self._wait_for_match_result(hwnd, stop_event, battle_blocks, first_repeat, task.get("macro"),
+                                             task.get("mode"), watch_close_popup, webhook, task)
+
+    def _press_start_game(self, hwnd, stop_event: threading.Event, task: dict, webhook: dict = None) -> bool:
+        """Press Start Game once Pre Start is done, retrying until it is gone.
+
+        Returns False only when the run was stopped. A Start Game that never
+        shows up is not a failure: the round may already be starting on its
+        own (a party leader or Auto Vote Start pressed it). Boss Rush presses
+        it at the spawn and again in every gate, so it lives on its own.
+        """
         self._set_status(action="Starting the round...")
         if self._checkpoint(stop_event):
-            return None
+            return False
         # Start Game genuinely applies to Expedition too (it can show up
         # more than once, similar to Infinite mode) -- not skipped here.
         self._wait_out_start_game_warning(hwnd, stop_event)
         if self._checkpoint(stop_event):
-            return None
+            return False
         start_name, start_match = self._find_start_game_button(hwnd, stop_event, START_GAME_BUTTON_WAIT_TIMEOUT)
         if start_match is None:
             # Not fatal: Start Game may already have been pressed by the
@@ -2059,7 +2250,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 vision.click_match(self._mouse, hwnd, start_match)
                 self._interruptible_sleep(START_GAME_CLICK_VERIFY_SETTLE, stop_event)
                 if self._checkpoint(stop_event):
-                    return None
+                    return False
 
                 start_name, start_match = self._find_start_game_button(hwnd)
                 if start_match is None:
@@ -2072,14 +2263,13 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                         webhook, task, "Start Game Click Not Registering",
                         f"Clicked Start Game {START_GAME_CLICK_RETRY_ATTEMPTS} times but it's still showing -- "
                         f"the round may not have actually started.", 0xE05A6D, screenshot_path)
-        if self._checkpoint(stop_event):
-            return None
+        return not self._checkpoint(stop_event)
 
-        # Team Loadout (including its Include/Exclude equipment choice) is
-        # applied earlier in Pre Start -- see _apply_team_loadout.
-        self._set_status(action="Battle...")
-        self._log("[Macro] Moving into Battle.")
-
+    def _begin_battle(self, task: dict) -> list:
+        """Reset every per-match battle counter and return the Battle blocks
+        to tick. Boss Rush calls this for its first gate and for the boss,
+        not per gate: the units -- and the Battle blocks' progress with
+        them -- carry through every gate in between."""
         battle_blocks = self._load_battle_blocks(task)
         self._battle_block_index = 0
         self._battle_block_state = {}
@@ -2123,9 +2313,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._exp_intercept_streak = 0
         self._exp_intercept_since = 0.0
         self._exp_clock_marked_at = 0.0
-        watch_close_popup = self._wants_close_popup_watch(task)
-        return self._wait_for_match_result(hwnd, stop_event, battle_blocks, first_repeat, task.get("macro"),
-                                             task.get("mode"), watch_close_popup, webhook, task)
+        return battle_blocks
 
 
     @staticmethod
@@ -2401,9 +2589,19 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
     def _wait_for_match_result(self, hwnd, stop_event: threading.Event, battle_blocks: list = None,
                                  first_repeat: bool = True, macro_name: str = None, mode: str = None,
-                                 watch_close_popup: bool = False, webhook: dict = None, task: dict = None) -> str:
+                                 watch_close_popup: bool = False, webhook: dict = None, task: dict = None,
+                                 watch_gate_clear: bool = False) -> str:
+        """Poll the running match until it ends. Returns "win"/"loss", an
+        Infinite exit ("wave_limit"/"restarted"), "left", or None on
+        failure/stop -- and, only with watch_gate_clear, "gate_cleared" when a
+        Boss Rush gate is done (see BossRushOps._boss_rush_gate_cleared)."""
         self._log("[Macro] Battle in progress -- watching for Victory/Defeat...")
         watch_portal_offer = self._wants_portal_offer_watch(task or {})
+        # Resolved once per match, not per poll tick: the lookup logs which
+        # card it settled on when the task's field is unset, and that belongs
+        # in the log once, not several times a second.
+        eclipse_card = (self._eclipse_card_image(task or {})
+                        if self._wants_eclipse_card_watch(task) else None)
         fishing_point = self._fishing_point(task)
         fishing_interval = self._fishing_interval(task)
         self._set_status(action="Battle in progress...")
@@ -2480,6 +2678,24 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                     self._portal_offer_taken = True
                     clicked_something = True
 
+            # The Eclipse card choice sits in the same time-critical spot as
+            # the portal offer above -- it is up for a limited window and the
+            # game picks for you if it closes. Unlike the portal offer there
+            # is NO once-per-match latch: the choice comes back every few
+            # waves, and every one of them has to be taken with the card the
+            # task asked for, since that is what fills the bar and decides
+            # which souls drop.
+            if eclipse_card and self._take_eclipse_card_if_found(hwnd, eclipse_card):
+                clicked_something = True
+
+            # A cleared Boss Rush gate ends this poll loop the way Victory
+            # ends a stage, but its card choice has a timer like the two
+            # offers above -- so it is checked here, ahead of the slower
+            # full-window scans below, not next to Victory/Defeat.
+            if watch_gate_clear and self._boss_rush_gate_cleared(hwnd):
+                self._release_quick_place_shift()
+                return "gate_cleared"
+
             # Roblox's own Reconnect/Retry prompt can show up mid-battle too,
             # not just during the teleport-in wait -- this used to only be
             # checked there, so a disconnect that happened AFTER teleporting
@@ -2550,7 +2766,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 # Asked every tick for the whole round; _ensure_rod_out paces
                 # its own looks.
                 if self._ensure_rod_out(hwnd, stop_event):
-                    self._tick_fishing(hwnd, fishing_point, fishing_interval)
+                    # The inventory is dealt with BEFORE casting again: six
+                    # full slots take no further catch, so a row left standing
+                    # quietly ends fishing for the round. A pass that clicked
+                    # or dragged skips this tick's cast -- a cast landing in
+                    # the middle of a drag drops the fish anywhere but the bin,
+                    # and the next tick casts anyway.
+                    if not self._tick_fish_inventory(hwnd, stop_event):
+                        self._tick_fishing(hwnd, fishing_point, fishing_interval)
 
             if mode == "expedition":
                 # An encounter node parks the client where no result can come
@@ -3015,7 +3238,11 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             self._log(f"[Macro] Webhook send failed: {send_result['reason']}")
 
     def _run_prestart(self, hwnd, stop_event: threading.Event, task: dict, default_walk_paths: dict,
-                        first_repeat: bool = True) -> bool:
+                        first_repeat: bool = True, team_check: bool = False) -> bool:
+        # team_check runs the Team Loadout step on a repeat too. Boss Rush
+        # needs it: its gates and its boss can use two Macro Operations with
+        # two different teams, so every run switches between them. When the
+        # team already matches, the step is a no-op (_last_applied_team_loadout).
         # Camera setup runs ONCE per fresh entry into a stage (same
         # first_repeat gate as Team Loadout and the Walk Path block below)
         # -- it used to re-run on every repeat as a "per-match reset", but
@@ -3069,7 +3296,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # could land on the wrong screen entirely if the panel wasn't in the
         # exact state it expects and produce exactly the kind of "it bugs
         # out" behavior this was reported as.
-        if first_repeat:
+        if first_repeat or team_check:
             team_loadout = self._team_loadout_key(task)
             if team_loadout and team_loadout == self._last_applied_team_loadout:
                 self._log(f"[Macro] Reusing Team Loadout {team_loadout[0]} "
@@ -4634,6 +4861,13 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 return True
             self._spam_back_until_gone(hwnd, stop_event)
             return False
+        # Boss Rush likewise: its map is a card with its own crop, not a label
+        # in Story's carousel.
+        if mode == "boss_rush":
+            if self._select_boss_rush_map(hwnd, stop_event, map_name):
+                return True
+            self._spam_back_until_gone(hwnd, stop_event)
+            return False
 
         log_and_status = lambda msg: (self._log(msg), self._set_status(action=msg.split("] ", 1)[-1]))
         kwargs = {"debug_screenshots": self._debug_screenshots}
@@ -5161,6 +5395,27 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             self._log(f"[Macro] Found Challenge (score {match['score']:.2f}) -- clicking it.{suffix}")
             return self._click_gamemode_target(
                 hwnd, stop_event, "Challenge", lambda: vision.click_match(self._mouse, hwnd, match))
+
+        if mode == "boss_rush":
+            self._log("[Macro] Menu open -- searching for Boss Rush...")
+            self._set_status(action="Clicking Boss Rush...")
+            match, name = self._find_gamemode_card(
+                hwnd, stop_event, BOSS_RUSH_IMAGE_NAMES, "Boss Rush")
+            if match is None:
+                if not stop_event.is_set():
+                    self._log(f'[Macro] "boss_rush" not found within {GAMEMODE_CLICK_TIMEOUT:.0f}s -- the '
+                               f'Boss Rush card never showed up, stopping.')
+                return False
+            debug_path = self._debug_save(hwnd, name, match)
+            suffix = f" Debug: {debug_path}" if debug_path else ""
+            self._log(f"[Macro] Found Boss Rush (score {match['score']:.2f}) -- clicking it.{suffix}")
+            if not self._click_gamemode_target(
+                    hwnd, stop_event, "Boss Rush", lambda: vision.click_match(self._mouse, hwnd, match)):
+                return False
+            # The map cards animate in behind the click, same as Story's
+            # carousel -- don't search them mid-transition.
+            time.sleep(SETTLE_DELAY)
+            return True
 
         if mode == "raid":
             self._log("[Macro] Menu open -- searching for Raid...")

@@ -1,0 +1,27 @@
+quest_redeem_sacrifice -- REFERENCE IMAGE STILL MISSING
+
+Put a crop named exactly "quest_redeem_sacrifice.png" in THIS folder.
+
+What to crop:
+  The button that hands SACRIFICE souls in. Crop the button including
+  its label.
+
+Where/how:
+  Crimson Shore > quest NPC > E, while carrying Sacrifice souls.
+
+Used by:
+  Finishing a cycle that farmed Sacrifice cards. Also one of the two
+  signals that say "a quest is already running" on start-up.
+
+Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
+Roblox, drag a box around it, type the name "quest_redeem_sacrifice", Save Crop -- that writes
+the file here and no restart is needed. A hand-made PNG dropped in here works
+too; use Settings > "Reload Vision Images" afterwards so the cache picks it up.
+
+Crop TIGHTLY, with as little surrounding background as possible. More crops of
+the SAME thing can be added here under any other .png name (e.g.
+"quest_redeem_sacrifice_alt2.png") -- all of them are tried before the search gives up, which
+is how you fix an element that renders slightly differently on your setup.
+
+Delete this .txt once the .png is in place; it only exists so the empty folder
+survives in git. It is ignored by the image search (only .png is read).

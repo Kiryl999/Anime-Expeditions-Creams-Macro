@@ -184,7 +184,7 @@ def is_key_down(vk: int) -> bool:
 # positions (kVK_ANSI_W is the physical W key on every layout), so these
 # just route the movement key names through the existing VK path.
 _MOVE_VKS = {"w": ord("W"), "a": ord("A"), "s": ord("S"), "d": ord("D"),
-             "i": ord("I"), "o": ord("O")}
+             "e": ord("E"), "i": ord("I"), "o": ord("O")}
 
 
 def move_key_down(name: str) -> None:

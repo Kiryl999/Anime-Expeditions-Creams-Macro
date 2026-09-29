@@ -131,7 +131,8 @@ def is_key_down(vk: int) -> bool:
 # same positions as QWERTY WASD). Sending the fixed scancode hits that same
 # physical cluster on every layout. On US QWERTY these scancodes are exactly
 # what MapVirtualKey already returned, so QWERTY behavior is unchanged.
-_MOVE_SCANCODES = {"w": 0x11, "a": 0x1E, "s": 0x1F, "d": 0x20, "i": 0x17, "o": 0x18}
+_MOVE_SCANCODES = {"w": 0x11, "a": 0x1E, "s": 0x1F, "d": 0x20,
+                   "e": 0x12, "i": 0x17, "o": 0x18}
 MAPVK_VSC_TO_VK = 1
 
 
