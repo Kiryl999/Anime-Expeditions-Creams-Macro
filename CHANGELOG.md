@@ -2,6 +2,19 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.14] - 2026-09-29
+
+### New
+- **Boss Rush**: a new task mode for the Boss Rush gamemode (Play > Boss Rush > District 7). One repeat is one whole run: Start Game at the spawn, then for each gate the macro walks there, presses E, presses Start Game, clears it and takes the middle one of the three cards -- up to the gate you pick under **Boss After Gate** (2-6), where it presses Fight Boss instead of Continue. The units placed in the first gate stay for the later gates; the boss arena starts empty, so the new **Macro Operation (Boss)** places them again ("Same as Gates" reuses the first one). The walks from the spawn to all six District 7 gates ship with the macro, so a new task runs without recording anything; under **Gate Paths** you can record your own walk for any gate instead. A lost gate or boss ends on the normal Defeat screen, and the next repeat starts a fresh run. The crops it needs are included.
+- **Switch tasks off without deleting them**: every task in the queue has an on/off switch next to Clone and Remove. A switched-off task keeps its place and all its settings, is greyed out, and the run skips it. The queue count shows how many are off.
+- **Auto Fishing clears the fish slots**: a catch no longer just piles up in the 6 fish slots. Fish with a crop in `wanted_fish` are clicked once to cash them in, fish with a crop in `unwanted_fish` are dragged to the bin. Pick the slot row once under Settings > Debug > Macro Coordinates > **Fish Slots**; while it is unset the slots are left alone. Crops for several fish are included.
+- **Walk recordings can press E**: the path recorder now records the E (interact) key along with WASD and I/O, so a recorded walk can end by pressing E at whatever it walked up to.
+- **Camera Yaw Check** (Settings > Debug): after Camera Setup, save the current camera angle under a label, measure how far a later map entry is turned away from it, and turn it back.
+- **Eclipse Quest -- not usable yet**: a task mode for the secret-unit quest line -- take the quest on Crimson Shore, farm the Eclipse event on whichever Story map carries it until the soul stack is full, hand the souls in. It still needs crops that don't ship yet (`quest_accept`, `quest_redeem_sacrifice` or `quest_redeem_redemption`, `souls_full`); until they are there, an Eclipse task says so in the log and is skipped.
+
+### Changed
+- **Updated `fishing_xp` and `portal_offer` reference images.**
+
 ## [0.21.13.2] - 2026-09-26
 
 ### Fixed
