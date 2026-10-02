@@ -2,6 +2,15 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.15] - 2026-10-02
+
+### Improved
+- **Portals are clicked by their name instead of always searching**: since 0.21.13 every portal pick typed the Portal Name into the picker's search -- click the box, empty it, type, wait for the list to filter -- which cost a few seconds plus several Macro Speed pauses on every round. The macro now first looks for the portal's name on the cards already listed and clicks that card straight away when it is there. Only when it is not does it search, and then it clicks the card as soon as its name shows up instead of waiting a fixed moment for the list. The name is what tells the portals apart (the art is the same on all of them), so this needs a crop of just the name printed on the card, saved via Settings > General > Image Manager as `portal_name_` plus the Portal Name -- e.g. `portal_name_infernal`. The Summer one is included. A portal without such a crop is searched as before, and the log names the crop it is missing. The name is only looked for inside the portal card list, so if your picker sits elsewhere, set it under Settings > Debug > Macro Coordinates > **Portal Card List**.
+- **The portal search box is only emptied when there is something in it**: the 33 key presses that clear it, and the Macro Speed pause after them, are skipped whenever the box shows its "Search..." placeholder -- which is most of the time.
+
+### Changed
+- **The `boss_rush_card_alt2` and `boss_rush_card_light_name` reference images are no longer included in the download.**
+
 ## [0.21.14] - 2026-09-29
 
 ### New
