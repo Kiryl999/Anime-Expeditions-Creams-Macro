@@ -42,6 +42,13 @@ def _runner():
     runner._find_portal_card = (
         lambda hwnd, stop_event, candidates: runner.clicked.append(("card", candidates))
         or ({"score": 0.97, "cx": 500, "cy": 250}, candidates[0]))
+    # The portal's NAME is never on screen here ("summer" ships a name crop,
+    # see test_portals_op for the shortcut it enables).
+    runner._find_portal_name = (
+        lambda hwnd, stop_event, name_image, timeout: runner.clicked.append(("name", name_image)) and None)
+    # A saved Portal Search point never finds the "Search..." placeholder,
+    # so the box is cleared (see test_portal_search_focus).
+    runner._portal_search_is_empty = lambda hwnd, point: False
     mouse = type("Mouse", (), {})()
     mouse.click = lambda x, y, **k: runner.clicked.append(("click", x, y))
     runner._mouse = mouse
@@ -71,15 +78,30 @@ def test_the_name_is_typed_before_any_card_is_looked_for(monkeypatch):
     assert runner.typed == ["Frost Rift"]
 
 
+def test_only_the_name_crop_is_looked_for_before_typing(monkeypatch):
+    """With a crop of the portal's name, the list is looked at BEFORE the
+    search -- by that name only. The generic card crops still wait for the
+    typed filter."""
+    runner = _runner()
+    monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
+    assert runner._select_portal_on_picker(1, threading.Event(), "summer") is True
+    order = [call[0] for call in runner.clicked]
+    assert order[0] == "name", "the name shortcut comes first"
+    assert order.index("type") < order.index("card")
+    assert [c[1] for c in runner.clicked if c[0] == "name"] == ["portal_name_summer"] * 2
+
+
 def test_the_box_is_cleared_without_ever_pressing_ctrl(monkeypatch):
     """The box is cleared with END + backspaces, never Ctrl+A.
 
-    The click into it is aimed at a crop of the placeholder word "Search...",
-    so it can miss -- and a Ctrl that misses reaches Roblox, where it toggles
-    the camera and leaves the rest of the run fighting the view. Reported
-    live. Backspace and END do nothing when they miss.
+    The click into it can miss -- and a Ctrl that misses reaches Roblox,
+    where it toggles the camera and leaves the rest of the run fighting the
+    view. Reported live. Backspace and END do nothing when they miss.
+    (Cleared at all only when it may hold text: a saved click point with no
+    "Search..." placeholder in sight, as here.)
     """
     runner = _runner()
+    runner._coords = dict(DEFAULT_COORDS, portal_search_x=470, portal_search_y=181)
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
     runner._select_portal_on_picker(1, threading.Event(), "summer")
 

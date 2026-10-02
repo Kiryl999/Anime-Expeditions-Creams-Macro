@@ -2227,8 +2227,10 @@ const TASK_DATA = {
     // used as the SEARCH QUERY in the Inventory -> Portals tab (see
     // core.runner_portals / PortalsOp). Stored in `map`, so it reads
     // straight through to logs/status. No map carousel or difficulty -- the
-    // portal name IS the selection. It is typed on every pick: the portals
-    // look alike in the picker and only differ by the name on the card.
+    // portal name IS the selection. The portals look alike in the picker and
+    // only differ by the name on the card, so the pick goes by that name: a
+    // crop of it (portal_name_<name>) clicks an already-listed portal
+    // straight away, otherwise the name is typed into the search first.
     isPortals: true,
   },
   tournament: {
@@ -3049,7 +3051,7 @@ function renderTaskBuilder() {
     fields.push(field('Portal Name', `<input type="text" class="block-input" style="width:130px;"
       value="${escapeHtml(t.map ?? 'summer')}" placeholder="e.g. summer"
       oninput="setTaskProp('${t.id}', 'map', this.value)">`,
-      'The portal to run, as printed on its card -- typed into the Inventory > Portals search on every pick (e.g. "summer")'));
+      'The portal to run, as printed on its card (e.g. "summer"). Typed into the Inventory > Portals search -- unless a crop of its name (Image Manager: portal_name_<name>) shows it is already listed, then it is clicked straight away'));
   } else if (t.mode === 'tournament') {
     fields.push(field('Type', sel('map', d.maps, null, 'Select the Tournament type to enter'), 'Select the Tournament type to enter'));
   } else if (t.mode === 'eclipse') {
@@ -6611,10 +6613,14 @@ const IMAGE_DESCRIPTIONS = {
 // job -- exactly the mix-up the badges + these descriptions clear up.
 const MAP_LABEL_DESC = "The map's NAME label shown in-match -- used to confirm which map you landed on (mainly Challenge).";
 const MAP_CARD_DESC = "The map's card in the Play > Story/Raid carousel -- used to PICK this map.";
+// One folder per portal (portal_name_summer, portal_name_infernal, ...), so it
+// is matched by prefix rather than listed name by name.
+const PORTAL_NAME_DESC = "The NAME printed on one portal's card in the picker (e.g. 'Summer Portal') -- crop just the name. When it is already listed, that portal is clicked without typing the search. One folder per portal: portal_name_ + the task's Portal Name.";
 
 function describeImage(catKey, name) {
   if (catKey === 'maps') return MAP_CARD_DESC;
   if (IMAGE_DESCRIPTIONS[name]) return IMAGE_DESCRIPTIONS[name];
+  if (name.startsWith('portal_name_')) return PORTAL_NAME_DESC;
   // A map name living under the UI folder is the in-match name label.
   if (mapCardNames().has(name)) return MAP_LABEL_DESC;
   return '';

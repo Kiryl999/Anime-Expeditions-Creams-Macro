@@ -487,6 +487,32 @@ PORTAL_CARD_TIMEOUT = 6.0
 # portal art alone, without the name printed under it. Was "summer_portal"
 # while Summer was the only portal.
 PORTAL_CARD_IMAGE = "portal_card"
+# A portal's NAME as printed along the bottom of its card ("Summer Portal"),
+# one folder per portal: portal_name_<Portal Name>. The art is the same
+# hourglass on every portal, the name is not -- measured on the shipped
+# crops, a tight crop of the "Summer Portal" label scores 0.98-0.99 on every
+# tier tint and 0.70-0.74 on "Infernal Portal" (threshold 0.90). So unlike
+# PORTAL_CARD_IMAGE it can be looked for BEFORE the search: a portal whose
+# name is already listed is clicked straight away (see
+# PortalsOp._select_portal_on_picker).
+# A new folder name on purpose: summer_portal/ used to hold crops with no
+# name on them, and the updater only ever ADDS assets, so those can still be
+# on disk -- read as name crops, they would pass any portal as Summer again.
+PORTAL_NAME_IMAGE_PREFIX = "portal_name_"
+# How long the card list is watched for the wanted name before searching.
+# Paid on every pick where it is NOT listed yet, so short: the picker has
+# already had SETTLE_DELAY to open by then.
+PORTAL_NAME_PEEK_TIMEOUT = 0.8
+# The name sits along the card's bottom edge. The click goes this far
+# (reference px) above its centre, onto the portal art -- where the
+# PORTAL_CARD_IMAGE crops have always been clicked -- rather than onto the
+# text itself.
+PORTAL_NAME_CLICK_RISE = 25
+# Where the "Search..." placeholder is looked for around a saved Portal Search
+# point (see PortalsOp._portal_search_is_empty): it sits at the LEFT end of
+# the bar and the point anywhere inside it, so the band reaches mostly left.
+# (left, right, half-height) in reference px.
+PORTAL_SEARCH_PLACEHOLDER_BAND = (260, 60, 14)
 
 # Tournament mode: reached through Play like Story/Raid -- its nav_tournament
 # button sits on the same gamemode menu (picked instead of Story), NOT via its

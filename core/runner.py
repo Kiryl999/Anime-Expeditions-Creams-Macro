@@ -4044,7 +4044,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         return False
 
     def _settled_match_any(self, hwnd, names: tuple, stop_event: threading.Event = None,
-                            first: dict = None) -> dict:
+                            first: dict = None, region: tuple = None) -> dict:
         """Re-find `names` until the centre stops moving, and return the last
         position seen.
 
@@ -4062,6 +4062,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         than waiting out an animation that never settles, and returns `first`
         unchanged if the button disappears meanwhile -- a vanished button is
         the caller's business, not this one's.
+
+        `region` keeps the re-looks inside the box the first look was made
+        in, for a caller that must not pick up a lookalike elsewhere.
         """
         match = first
         for _ in range(CLICK_SETTLE_MAX_LOOKS):
@@ -4069,7 +4072,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if stop_event is not None and stop_event.is_set():
                 return match
             try:
-                again, _name = vision.find_image_any(hwnd, names)
+                again, _name = vision.find_image_any(hwnd, names, region=region)
             except vision.TemplateNotFound:
                 return match
             if again is None:

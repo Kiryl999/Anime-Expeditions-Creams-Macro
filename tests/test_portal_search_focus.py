@@ -7,13 +7,20 @@ sits differently the click lands outside the field ("clicks too far left").
 The macro then typed into nothing. Worse, the clearing step was Ctrl+A, and a
 Ctrl that misses the field reaches Roblox, where it toggles the camera and
 leaves the rest of the run fighting the view.
+
+And clearing is skipped when the box is known to be empty: the game only
+draws that placeholder in an empty box, and 33 keys plus a Macro Speed pause
+on every pick were spent on a box that usually opens empty.
 """
 import threading
 
 import core.runner_portals as portal_module
 from core import keys
 from core.runner import MacroRunner
-from core.runner_constants import DEFAULT_COORDS, PORTAL_SEARCH_CLEAR_KEYS
+from core.runner_constants import (DEFAULT_COORDS, PORTAL_SEARCH_CLEAR_KEYS,
+                                   PORTAL_SEARCH_PLACEHOLDER_BAND)
+
+SAVED_POINT = {"portal_search_x": 470, "portal_search_y": 181}
 
 
 def _runner(coords=None):
@@ -29,6 +36,9 @@ def _runner(coords=None):
     runner._click_found_image = (
         lambda hwnd, name, timeout, stop, **k:
         runner.events.append(("image", name)) or {"score": 0.99})
+    # By default a saved point finds no "Search..." placeholder, so the box
+    # may hold text and gets cleared.
+    runner._portal_search_is_empty = lambda hwnd, point: False
     kb = type("Kb", (), {})()
     kb.combo = lambda *a, **k: runner.events.append(("combo", a))
     kb.tap = lambda vk, **k: runner.events.append(("tap", vk))
@@ -69,19 +79,20 @@ def test_a_half_set_point_is_ignored():
 def test_ctrl_is_never_pressed():
     """The safety-critical one. Ctrl reaches Roblox when the click misses and
     changes the camera view, which no run recovers from on its own."""
-    runner = _runner()
+    for coords in (None, SAVED_POINT):
+        runner = _runner(coords)
 
-    runner._focus_portal_search(1, threading.Event())
+        runner._focus_portal_search(1, threading.Event())
 
-    assert not any(e[0] == "combo" for e in runner.events)
-    assert keys.VK_CONTROL not in [e[1] for e in runner.events if e[0] == "tap"]
+        assert not any(e[0] == "combo" for e in runner.events)
+        assert keys.VK_CONTROL not in [e[1] for e in runner.events if e[0] == "tap"]
 
 
 def test_the_field_is_cleared_from_the_end_of_the_text():
     """END first: a click can land mid-text, and backspace deletes to the LEFT
     of the cursor -- from the end it takes everything. It used to be HOME,
     which parks the cursor where backspace deletes nothing at all."""
-    runner = _runner()
+    runner = _runner(SAVED_POINT)
 
     runner._focus_portal_search(1, threading.Event())
 
@@ -96,7 +107,7 @@ def test_clearing_pays_the_macro_speed_pause_once_not_per_key(monkeypatch):
     keys waited it 33 times -- about 20s of a search box that looked stuck at
     600ms, reported live on a Remote Desktop setup. The keys go out unpaced,
     with one pause after them, the way type_text handles its characters."""
-    runner = _runner()
+    runner = _runner(SAVED_POINT)
     paced, pauses = [], []
     runner._keyboard.tap = lambda vk, **k: paced.append(k.get("pace", True))
     monkeypatch.setattr(portal_module.pacing, "action_pause", lambda: pauses.append(1))
@@ -105,6 +116,79 @@ def test_clearing_pays_the_macro_speed_pause_once_not_per_key(monkeypatch):
     assert len(paced) == PORTAL_SEARCH_CLEAR_KEYS + 1
     assert not any(paced), "a clearing key was sent paced"
     assert pauses == [1]
+
+
+# ---------------------------------------------------------------------------
+# Not clearing a box that is already empty
+# ---------------------------------------------------------------------------
+
+def test_a_box_found_by_its_placeholder_is_not_cleared(monkeypatch):
+    """The shipped crop IS the "Search..." placeholder, which the game only
+    draws in an empty box -- finding it already proves there is nothing to
+    clear. No keys, no Macro Speed pause."""
+    runner = _runner()
+    pauses = []
+    monkeypatch.setattr(portal_module.pacing, "action_pause", lambda: pauses.append(1))
+
+    assert runner._focus_portal_search(1, threading.Event()) is True
+    assert ("image", "portal_search") in runner.events
+    assert not any(e[0] == "tap" for e in runner.events)
+    assert pauses == []
+
+
+def test_a_saved_point_with_the_placeholder_showing_is_not_cleared(monkeypatch):
+    """Same for a saved point: the placeholder is checked BEFORE the click,
+    while nothing has touched the box yet."""
+    runner = _runner(SAVED_POINT)
+    order = []
+    runner._portal_search_is_empty = lambda hwnd, point: order.append(("look", point)) or True
+    runner._click_ref = lambda hwnd, x, y, **k: order.append(("click", (x, y)))
+    pauses = []
+    monkeypatch.setattr(portal_module.pacing, "action_pause", lambda: pauses.append(1))
+
+    assert runner._focus_portal_search(1, threading.Event()) is True
+    assert order == [("look", (470, 181)), ("click", (470, 181))]
+    assert not any(e[0] == "tap" for e in runner.events)
+    assert pauses == []
+
+
+def test_the_placeholder_is_looked_for_around_a_saved_point(monkeypatch):
+    """A saved point usually means the built-in search region does not fit
+    this layout, so the look goes around the point -- mostly to its left,
+    where the placeholder starts the bar."""
+    runner = _runner(SAVED_POINT)
+    del runner._portal_search_is_empty     # the real one
+    regions = []
+    monkeypatch.setattr(portal_module.vision, "find_image",
+                        lambda hwnd, name, region=None, **k: regions.append((name, region)) or {"score": 0.95})
+
+    assert runner._portal_search_is_empty(1, (470, 181)) is True
+    left, right, half = PORTAL_SEARCH_PLACEHOLDER_BAND
+    assert regions == [("portal_search", (470 - left, 181 - half, left + right, 2 * half))]
+
+
+def test_the_placeholder_band_stays_inside_the_window(monkeypatch):
+    runner = _runner(SAVED_POINT)
+    del runner._portal_search_is_empty
+    regions = []
+    monkeypatch.setattr(portal_module.vision, "find_image",
+                        lambda hwnd, name, region=None, **k: regions.append(region))
+
+    assert runner._portal_search_is_empty(1, (20, 5)) is False
+    x, y, w, h = regions[0]
+    assert (x, y) == (0, 0)
+    assert w > 0 and h > 0
+
+
+def test_no_placeholder_crop_means_clearing_as_before(monkeypatch):
+    runner = _runner(SAVED_POINT)
+    del runner._portal_search_is_empty
+
+    def raise_missing(*a, **k):
+        raise portal_module.vision.TemplateNotFound("no such template")
+
+    monkeypatch.setattr(portal_module.vision, "find_image", raise_missing)
+    assert runner._portal_search_is_empty(1, (470, 181)) is False
 
 
 def test_a_missing_search_box_fails_loudly_and_says_what_to_do():
