@@ -4475,6 +4475,10 @@ let creationFreshLoad = true;
 // through its Macro Operation pick.
 let creationTeam = '';
 let creationEquipment = 'include';
+// Whether the run does its Camera Setup before this template's Pre Start
+// blocks -- saved with the template like the loadout (see
+// renderCameraSetupRow).
+let creationCamera = true;
 
 function newBlockId() {
   return 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -7210,6 +7214,40 @@ function renderCreationLoadout() {
   el.innerHTML = `<span class="palette-group-label" style="margin: 0; white-space: nowrap; flex-shrink: 0;">Team Loadout</span>${teamSel}${eqSeg}`;
 }
 
+// The run's Camera Setup (tilt top-down, zoom out) happens on a task's first
+// entry into a stage, before any Pre Start block. It used to run unseen, so
+// the pinned Walk Path got the blame for it -- this row puts it where it
+// actually happens. Not a block: it sits above the drop zone, can't be
+// dragged, and saves with the template like the loadout. Off is for routines
+// that never place by position (e.g. ones that only turn on Auto Play);
+// Place Unit and Walk Path positions are recorded against this view.
+function renderCameraSetupRow() {
+  const tip = 'Tilts the camera top-down and zooms out on the first entry into a stage, before the blocks below run. '
+    + 'Place Unit and Walk Path positions depend on that view -- switch it off only for routines that do not place by position, '
+    + 'e.g. ones that just turn on Auto Play.';
+  return `
+    <div class="phase-fixture">
+      <div class="block-row pinned" style="--blk: var(--teal);">
+        <svg class="pinned-walk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        <span class="block-label" style="color: var(--teal);" title="${tip}">Camera Setup</span>
+        <div class="seg-toggle">
+          <button type="button" class="seg-btn ${creationCamera ? 'active' : ''}" onclick="setCreationCamera(true)">On</button>
+          <button type="button" class="seg-btn ${creationCamera ? '' : 'active'}" onclick="setCreationCamera(false)">Off</button>
+        </div>
+        <span class="flex-1"></span>
+        <span class="pinned-walk-badge${creationCamera ? '' : ' muted'}" title="${tip}">${creationCamera ? 'Runs Once' : 'Skipped'}</span>
+      </div>
+    </div>`;
+}
+
+function setCreationCamera(on) {
+  creationCamera = !!on;
+  renderPhases();
+}
+
 function renderPhases() {
   const el = document.getElementById('creation-phases');
   if (!el) return;
@@ -7266,6 +7304,7 @@ function renderPhases() {
           <span class="rp-head-tag" style="--rp-tag: ${phase === 'prestart' ? 'var(--teal)' : (phase === 'loop_a' || phase === 'loop_b') ? 'var(--sky)' : 'var(--rose)'}; margin-left: 2px;">${PHASE_TAGS[phase]}</span>
           <span class="phase-count">${blockCount}</span>
         </div>
+        ${phase === 'prestart' ? renderCameraSetupRow() : ''}
         <div id="creation-canvas-${phase}" class="canvas-dropzone p-2"
              ondragover="onCanvasDragOver(event, '${phase}')" ondragleave="onCanvasDragLeave(event, '${phase}')"
              ondrop="onCanvasDrop(event, '${phase}')">${body}</div>
@@ -7468,7 +7507,7 @@ function onBlockDrop(e, key, targetId) {
 // now, so its mode/pathName save as part of the block itself, same as
 // every other block's own fields.
 function currentCreationPayload() {
-  const payload = { team: creationTeam, equipment: creationEquipment };
+  const payload = { team: creationTeam, equipment: creationEquipment, camera: creationCamera };
   PHASES.forEach(phase => { payload[phase] = creationPhases[phase].map(serializeBlock); });
   return payload;
 }
@@ -7542,6 +7581,7 @@ function newTemplate() {
   creationPhases = { prestart: [{ id: newBlockId(), type: 'walk_path', params: {}, once: true, mode: 'auto', pathName: '' }], battle: [], loop_a: [], loop_b: [] };
   creationTeam = '';
   creationEquipment = 'include';
+  creationCamera = true;
   document.getElementById('template-name').value = '';
   document.getElementById('template-select').value = '';
   creationFreshLoad = true;
@@ -7812,6 +7852,7 @@ async function loadSelectedTemplate() {
     creationPhases = { prestart: [], battle: [], loop_a: [], loop_b: [] };
     creationTeam = '';
     creationEquipment = 'include';
+    creationCamera = true;
 
     if (Array.isArray(payload)) {
       // Oldest shape: one flat pre-phases list. Everything that still exists
@@ -7838,6 +7879,9 @@ async function loadSelectedTemplate() {
       }
       creationTeam = payload.team || '';
       creationEquipment = payload.equipment === 'exclude' ? 'exclude' : 'include';
+      // Only an explicit false switches it off -- templates saved before the
+      // switch existed have no key and keep their camera setup.
+      creationCamera = payload.camera !== false;
     }
     // No walk_path handling needed here: renderPhases() below enforces the
     // pinned-block invariant (synthesize if missing, force Once, keep at

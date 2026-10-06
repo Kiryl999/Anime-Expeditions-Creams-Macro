@@ -1132,13 +1132,15 @@ _DIRTY_HARNESS = """
 global.PHASES = ['prestart', 'battle'];
 let nameValue = 'Boss Rush';
 global.document = { getElementById: () => ({ get value() { return nameValue; } }) };
-global.creationTeam = ''; global.creationEquipment = 'include';
+global.creationTeam = ''; global.creationEquipment = 'include'; global.creationCamera = true;
 global.creationPhases = { prestart: [], battle: [] };
+global.renderPhases = () => {};
 eval(extract('serializeBlock'));
 eval(extract('currentCreationPayload'));
 eval(extract('currentCreationSnapshot'));
 eval(extract('markCreationEditorSaved'));
 eval(extract('creationEditorHasUnsavedChanges'));
+eval(extract('setCreationCamera'));
 let creationSavedSnapshot = null;
 const before = creationEditorHasUnsavedChanges();
 markCreationEditorSaved();
@@ -1147,9 +1149,15 @@ creationPhases.battle.push({ type: 'attack', params: {} });
 const afterEdit = creationEditorHasUnsavedChanges();
 creationPhases.battle.pop();
 const afterUndo = creationEditorHasUnsavedChanges();
+setCreationCamera(false);
+const afterCameraOff = creationEditorHasUnsavedChanges();
+const savedCamera = currentCreationPayload().camera;
+setCreationCamera(true);
+const afterCameraBackOn = creationEditorHasUnsavedChanges();
 nameValue = 'Renamed';
 const afterRename = creationEditorHasUnsavedChanges();
-console.log(JSON.stringify({ before, afterSave, afterEdit, afterUndo, afterRename }));
+console.log(JSON.stringify({ before, afterSave, afterEdit, afterUndo, afterCameraOff, savedCamera,
+                             afterCameraBackOn, afterRename }));
 """
 
 
@@ -1159,7 +1167,45 @@ def test_unsaved_changes_tracking(tmp_path):
     assert out["afterSave"] is False
     assert out["afterEdit"] is True
     assert out["afterUndo"] is False, "edit-then-undo must not leave a false warning"
+    assert out["afterCameraOff"] is True, "switching Camera Setup off is an unsaved change"
+    assert out["savedCamera"] is False, "the switch is saved with the template"
+    assert out["afterCameraBackOn"] is False
     assert out["afterRename"] is True, "renaming is an unsaved change too"
+
+
+_CAMERA_LOAD = """
+global.PHASES = ['prestart', 'battle'];
+global.document = { getElementById: () => ({ value: '' }) };
+global.creationTeam = ''; global.creationEquipment = 'include'; global.creationCamera = true;
+global.creationPhases = { prestart: [], battle: [] };
+global.creationFreshLoad = false;
+global.renderPhases = () => {};
+global.markCreationEditorSaved = () => {};
+global.newBlockId = () => 'b1';
+global.blockFromSaved = b => ({ ...b });
+const results = {};
+eval(extract('loadSelectedTemplate'));
+async function load(label, blocks) {
+  creationCamera = label === 'from off' ? false : true;
+  global.pywebview = { api: { load_template: async () => ({ name: 'x', blocks }) } };
+  global.document = { getElementById: () => ({ value: 'x' }) };
+  await loadSelectedTemplate();
+  results[label] = creationCamera;
+}
+(async () => {
+  await load('off', { camera: false, prestart: [], battle: [] });
+  await load('from off', { prestart: [], battle: [] });
+  await load('on', { camera: true, prestart: [], battle: [] });
+  console.log(JSON.stringify(results));
+})();
+"""
+
+
+def test_loading_a_template_restores_its_camera_switch(tmp_path):
+    out = run_js(_CAMERA_LOAD, tmp_path)
+    assert out["off"] is False
+    assert out["from off"] is True, "a template without the key loads with Camera Setup on"
+    assert out["on"] is True
 
 # ---------------------------------------------------------------------------
 # The in-game Roblox checklist

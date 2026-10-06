@@ -991,6 +991,17 @@ h1, h2, h3, .brand-font { font-family: 'Sora', 'Inter', system-ui, sans-serif; }
   background: color-mix(in srgb, var(--amber) 12%, transparent);
   padding: 3px 8px; border-radius: 6px; flex-shrink: 0; cursor: default;
 }
+/* The Camera Setup row's badge while it is switched off: nothing runs, so
+   it steps back from the amber "Runs Once" look. */
+.pinned-walk-badge.muted {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: transparent;
+}
+/* Camera Setup sits above Pre Start's drop zone rather than in it (it is a
+   template setting, not a block), padded to line up with the rows below. */
+.phase-fixture { padding: 8px 8px 0; }
+.phase-fixture + .canvas-dropzone { padding-top: 0; }
 .block-drag-handle { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
 .block-label { font-size: 12px; font-weight: 700; min-width: 118px; color: var(--blk, var(--text)); }
 .block-input {
@@ -1075,7 +1086,8 @@ h1, h2, h3, .brand-font { font-family: 'Sora', 'Inter', system-ui, sans-serif; }
 }
 .phase-head .phase-chevron { color: var(--text-muted); transition: transform 0.15s; flex-shrink: 0; }
 .phase-panel.collapsed .phase-chevron { transform: rotate(-90deg); }
-.phase-panel.collapsed .canvas-dropzone { display: none; }
+.phase-panel.collapsed .canvas-dropzone,
+.phase-panel.collapsed .phase-fixture { display: none; }
 
 /* Per-block modifier chip (e.g. "Run Once") -- small enough to sit inline in
    a .block-row without competing with the row's own param inputs, off by

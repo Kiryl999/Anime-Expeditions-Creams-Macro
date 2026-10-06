@@ -3256,7 +3256,18 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # > Debug > Camera Setup 3 tests) -- 730ms rotate, then a short O
         # tap for a small zoom step (duration user-tunable: Settings >
         # Debug > "Expedition Camera Zoom", 100ms default).
-        if first_repeat:
+        #
+        # A routine can switch the whole camera step off (Macro Manager >
+        # Pre Start > Camera Setup) -- for routines that never place by
+        # position, e.g. ones that only turn on the game's own Auto Play.
+        if first_repeat and not self._camera_setup_enabled(task):
+            # Same settle a repeat keeps when it skips the camera (see
+            # REPEAT_ENTRY_SETTLE): the drag was the only thing standing
+            # between teleporting in and the first block.
+            self._log(f'[Macro] Pre Start: camera setup is switched off in "{task.get("macro")}" -- '
+                      f"skipping it. Letting the map settle for {REPEAT_ENTRY_SETTLE:.0f}s.")
+            self._interruptible_sleep(REPEAT_ENTRY_SETTLE, stop_event)
+        elif first_repeat:
             self._log("[Macro] Pre Start: setting up the camera...")
             self._set_status(action="Setting up camera...")
             # nav_unitmanager (just confirmed by _wait_teleport_in) is a HUD
@@ -3327,6 +3338,21 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         if self._checkpoint(stop_event):
             return False
         return True
+
+    def _camera_setup_enabled(self, task: dict) -> bool:
+        """Whether the task's Macro Operation wants the Pre Start camera setup.
+
+        On unless the template explicitly switched it off (``camera`` is
+        False). A task with no macro, a missing or unreadable template, and
+        every template saved before the switch existed keep the camera setup
+        they always had.
+        """
+        macro_name = task.get("macro")
+        if not macro_name:
+            return True
+        from . import templates as tpl
+        blocks = tpl.load_template(macro_name).get("blocks") or {}
+        return not (isinstance(blocks, dict) and blocks.get("camera") is False)
 
     def _team_loadout_key(self, task: dict):
         """Return the normalized team/equipment pair configured by a task.

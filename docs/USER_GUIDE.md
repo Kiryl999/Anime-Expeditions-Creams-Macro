@@ -121,6 +121,13 @@ Common blocks include:
 Keep recordings short and deterministic. Prefer dedicated blocks over a long
 recording when possible, because they are easier to adjust after a game update.
 
+The **Camera Setup** row at the top of Pre Start is part of the template: on
+the first entry into a stage the macro tilts the camera top-down and zooms out
+before any block runs. Place Unit and Walk Path positions depend on that view,
+so leave it **On** for any operation that places units by position. Switch it
+**Off** only for operations that do not, for example one that just turns on the
+game's Auto Play.
+
 ### Expedition encounters
 
 Expedition nodes can drop an encounter that has to be walked to and talked to.
