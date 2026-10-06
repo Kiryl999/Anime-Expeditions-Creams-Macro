@@ -2,6 +2,14 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.16] - 2026-10-06
+
+### New
+- **Camera Setup can be switched off per macro**: on the first entry into a stage the macro sets up the camera before your Pre Start blocks run -- a right-click drag that tilts it top-down, then O to zoom out. That step used to run unseen, which made the pinned Walk Path look like the thing moving the camera. It now has its own row at the top of Pre Start in the Macro Manager, above the Walk Path, with an **On/Off** switch that is saved with the macro. Switched off, the macro skips the camera setup and gives the map 5 seconds to settle before the first block instead, the same as on a repeat. Leave it on for any macro that places units by position -- Place Unit and Walk Path positions are recorded against that view. Off is for macros that don't, e.g. one that only turns on the game's Auto Play. Existing macros keep it on.
+
+### Fixed
+- **The camera drag keeps the mouse pointer inside Roblox**: Roblox pulls the pointer back only once per frame while the right button is held, so where the game draws few frames -- over Remote Desktop in particular -- the camera setup's quick drag could carry the pointer out of the game window, and the right button was let go over the log strip or the taskbar instead of the game. The pointer now stays inside the game window for the length of the drag and is freed right after. This covers every camera drag: Pre Start, the Expedition camera, the Gold Shop and the Camera Setup buttons under Settings > Debug.
+
 ## [0.21.15] - 2026-10-02
 
 ### Improved
