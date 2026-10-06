@@ -43,6 +43,16 @@ def no_camera_delays(monkeypatch):
     monkeypatch.setattr(camera.wm, "get_window_rect_screen", lambda _hwnd: (100, 200, 500, 600))
 
 
+@pytest.fixture(autouse=True)
+def cursor_clip(monkeypatch):
+    """Records the drag's cursor clipping instead of really caging the cursor
+    of whatever machine runs the tests."""
+    calls = []
+    monkeypatch.setattr(camera.wm, "clip_cursor", lambda rect: calls.append(("clip", tuple(rect))) or True)
+    monkeypatch.setattr(camera.wm, "release_cursor_clip", lambda: calls.append(("release",)))
+    return calls
+
+
 def test_tilt_camera_top_down_pins_pitch_without_keyboard_input():
     mouse = FakeMouse()
 
@@ -71,3 +81,42 @@ def test_standard_camera_setup_still_adds_the_o_zoom_hold():
     camera.run_camera_setup(mouse, keyboard, hwnd=123, hold_ms=2000)
 
     assert keyboard.events == [("down", ord("O")), ("up", ord("O"))]
+
+
+# Roblox only recenters the cursor once per frame. On a slow-rendering session
+# (Remote Desktop) the 40 quick nudges outran that, the cursor left the game
+# and the right button came up over the log strip or the taskbar. The drag now
+# keeps the cursor clipped to the game window -- and must never leave it caged.
+
+def test_drag_keeps_the_cursor_inside_the_game_window(cursor_clip):
+    mouse = FakeMouse()
+    mouse.events = cursor_clip  # one timeline for mouse and clip calls
+
+    camera.tilt_camera_top_down(mouse, hwnd=123)
+
+    first_drag = cursor_clip.index(("nudge", 0, 80))
+    assert ("clip", (100, 200, 500, 600)) in cursor_clip[:first_drag]
+    assert cursor_clip.count(("clip", (100, 200, 500, 600))) == 40, "re-set before every nudge"
+    assert cursor_clip[-2:] == [("up", "right"), ("release",)], \
+        "the button comes up while still clipped, then the cursor is freed"
+
+
+def test_cursor_is_freed_even_when_the_drag_fails(cursor_clip):
+    mouse = FakeMouse(fail_on_drag=3)
+    mouse.events = cursor_clip
+
+    with pytest.raises(RuntimeError, match="drag failed"):
+        camera.tilt_camera_top_down(mouse, hwnd=123)
+
+    assert cursor_clip[-2:] == [("up", "right"), ("release",)]
+
+
+def test_cursor_is_freed_even_when_the_button_release_fails(cursor_clip):
+    class UpFails(FakeMouse):
+        def up(self, button):
+            raise RuntimeError("up failed")
+
+    with pytest.raises(RuntimeError, match="up failed"):
+        camera.tilt_camera_top_down(UpFails(), hwnd=123)
+
+    assert cursor_clip[-1] == ("release",)

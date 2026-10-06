@@ -736,6 +736,31 @@ def activate_window(hwnd: int) -> bool:
     return ok
 
 
+user32.ClipCursor.restype = wintypes.BOOL
+user32.ClipCursor.argtypes = [ctypes.POINTER(RECT)]
+
+
+def clip_cursor(rect) -> bool:
+    """Confine the cursor to rect (left, top, right, bottom, screen coords).
+
+    For core.camera's right-click drag: Roblox only pulls the cursor back
+    once per frame, so on a slow-rendering session (Remote Desktop) a fast
+    drag carries it out of the game and the right button comes up over
+    whatever lies below -- the log strip, the desktop, the taskbar. Confined,
+    it can't leave. Returns whether the clip took; an empty rect is refused
+    rather than clipping the cursor into nothing.
+    """
+    left, top, right, bottom = (int(v) for v in rect)
+    if right <= left or bottom <= top:
+        return False
+    return bool(user32.ClipCursor(ctypes.byref(RECT(left, top, right, bottom))))
+
+
+def release_cursor_clip() -> None:
+    """Free the cursor again -- the whole screen, which is the normal state."""
+    user32.ClipCursor(None)
+
+
 def move_window(hwnd: int, x: int, y: int, w: int, h: int) -> None:
     user32.MoveWindow(hwnd, x, y, w, h, True)
 

@@ -26,6 +26,13 @@ def tilt_camera_top_down(mouse, hwnd) -> None:
     mouse.nudge()  # force a real hover event before the click lands
     time.sleep(0.05)
 
+    # Kept inside the game for the whole drag. Roblox's recenter is only once
+    # per frame, so where frames are slow (Remote Desktop) several nudges
+    # land between two recenters and carry the cursor out of the window --
+    # the right button then comes up over the log strip or the taskbar
+    # instead of the game. The camera itself reads the raw deltas, which the
+    # clip doesn't touch.
+    clip = (left, top, right, bottom)
     mouse.down("right")
     try:
         time.sleep(0.08)
@@ -33,6 +40,9 @@ def tilt_camera_top_down(mouse, hwnd) -> None:
         # down -- past the floor the extra deltas are no-ops, so overshooting
         # is free and saves needing to know the exact sensitivity/pitch-range.
         for _ in range(40):
+            # Re-set every step: a focus change, or the game itself, can
+            # clear a clip at any time.
+            wm.clip_cursor(clip)
             mouse.nudge(0, 80)
             time.sleep(0.012)
         time.sleep(0.08)
@@ -43,7 +53,13 @@ def tilt_camera_top_down(mouse, hwnd) -> None:
         # then read to Roblox as an active camera-rotate drag instead of a
         # normal, unlocked cursor move (the same "holding right click keeps
         # the mouse from locking" symptom this helper exists to produce).
-        mouse.up("right")
+        # Released while still clipped, so it lands on the game; the clip
+        # goes after it no matter what, or the cursor stays caged in the
+        # game window for the rest of the session.
+        try:
+            mouse.up("right")
+        finally:
+            wm.release_cursor_clip()
     time.sleep(0.15)
 
 
