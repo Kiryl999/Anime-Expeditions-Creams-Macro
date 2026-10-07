@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.19] - 2026-10-07
+
+### New
+- **Monster Clash**: a Task Builder mode for the Battle Event from the game's latest update. A task goes Events > Monster Clash > Play Event > Play - Choose Stage > Select Stage > Start, always Solo, and plays the map with its Macro Operation. Sometimes a cleared map spawns a helicopter instead of the Victory screen -- all that shows is the **Game Results** button. The macro then waits about 15 seconds, presses E to board it (again if the first press is not taken), and plays the second map it flies to: that map starts empty, so its Pre Start runs in full, with the task's new **Macro Operation (Helicopter)** ("Same as above" reuses the first one). One repeat is one such run, and since either map's result screen only leads back to the lobby, every repeat goes in through the Events menu again. The crops for the way in are included (`monster_clash`, `monster_clash_play_event`, `monster_clash_choose_stage`); if one does not match on your setup, add another crop under the same name via Settings > General > Image Manager.
+
 ## [0.21.18] - 2026-10-07
 
 ### New
