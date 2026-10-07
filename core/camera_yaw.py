@@ -6,11 +6,11 @@ Why this exists: movement in Roblox is camera-relative -- W walks wherever
 the camera looks. The initial camera yaw on spawning into a map comes from
 the character's facing, and that varies between entries into the SAME map
 (spawn pad orientation, another player shoving the character on the pad, a
-spawn animation still running). core.camera's setup drags straight DOWN,
-which pins the pitch top-down but never touches the yaw, so that spawn
-variance survives the setup untouched and rotates the entire recorded route
-with it -- reported as "sometimes the map is visibly turned ~30 degrees and
-the macro walks off in the wrong direction".
+spawn animation still running). core.camera's setup only turns the camera
+straight DOWN, which pins the pitch top-down but never touches the yaw, so
+that spawn variance survives the setup untouched and rotates the entire
+recorded route with it -- reported as "sometimes the map is visibly turned
+~30 degrees and the macro walks off in the wrong direction".
 
 The measurement only works because of what core.camera already does: with
 the pitch pinned to its floor and the zoom held out, the viewport is
@@ -263,7 +263,7 @@ _last_rate = None
 def _pulse(keyboard, signed_ms: float, sleep_fn) -> None:
     """Hold Left (positive) or Right (negative) for |signed_ms|.
 
-    Released in a finally for the same reason core.camera guards its drag:
+    Released in a finally for the same reason core.camera guards its keys:
     an arrow key left physically down would keep the camera rotating for the
     rest of the run, turning one bad alignment into a broken session.
     """

@@ -22,7 +22,7 @@ def _runner(monkeypatch):
     runner._apply_team_loadout = lambda *_a, **_k: True
     runner._team_loadout_key = lambda _task: None
     monkeypatch.setattr(runner_module.camera, "run_camera_setup", lambda *_a, **_k: None)
-    monkeypatch.setattr(runner_module.camera, "run_camera_drag_hold", lambda *_a, **_k: None)
+    monkeypatch.setattr(runner_module.camera, "run_camera_rotate_hold", lambda *_a, **_k: None)
     return runner
 
 

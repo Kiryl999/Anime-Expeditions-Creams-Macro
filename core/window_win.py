@@ -743,11 +743,11 @@ user32.ClipCursor.argtypes = [ctypes.POINTER(RECT)]
 def clip_cursor(rect) -> bool:
     """Confine the cursor to rect (left, top, right, bottom, screen coords).
 
-    For core.camera's right-click drag: Roblox only pulls the cursor back
-    once per frame, so on a slow-rendering session (Remote Desktop) a fast
-    drag carries it out of the game and the right button comes up over
-    whatever lies below -- the log strip, the desktop, the taskbar. Confined,
-    it can't leave. Returns whether the clip took; an empty rect is refused
+    For core.camera's look-down: Roblox only pulls the cursor back to the
+    middle once per frame, so on a slow-rendering session (Remote Desktop)
+    the moves between two frames can carry it out of the game, over whatever
+    lies below -- the log strip, the desktop, the taskbar. Confined, it
+    can't leave. Returns whether the clip took; an empty rect is refused
     rather than clipping the cursor into nothing.
     """
     left, top, right, bottom = (int(v) for v in rect)

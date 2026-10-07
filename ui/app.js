@@ -1548,10 +1548,10 @@ async function testMacroOperation(btn, mode) {
   setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1200);
 }
 
-// Settings > Debug > "Camera Setup" -- the backend does the right-drag +
-// zoom-hold on its own thread (~3s); the game has to be visible and focused,
-// so switch to the Dashboard first, same as every other live-input debug
-// action.
+// Settings > Debug > "Camera Setup" -- the backend does the tilt (I, mouse
+// down, O) + zoom-hold on its own thread (~4s); the game has to be visible
+// and focused, so switch to the Dashboard first, same as every other
+// live-input debug action.
 async function runCameraSetup(btn) {
   const original = btn.textContent;
   switchScreen('dashboard');
@@ -1564,7 +1564,7 @@ async function runCameraSetup(btn) {
   } catch (e) {
     btn.textContent = 'Failed';
   }
-  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 3200);
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4300);
 }
 
 // Settings > Debug > "Camera Setup 2" -- same sequence as Camera Setup, but
@@ -1583,7 +1583,7 @@ async function runCameraSetup2(btn) {
   } catch (e) {
     btn.textContent = 'Failed';
   }
-  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, Math.max(3200, holdMs + 1200));
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, Math.max(4300, holdMs + 2300));
 }
 
 // First-run welcome (see #onboarding-modal): shown once per install, rows
@@ -1857,10 +1857,10 @@ async function saveExpeditionOZoom(el) {
   addLog(`[Settings] Expedition camera zoom hold set to ${ms}ms.`);
 }
 
-// Settings > Debug > "Camera Setup 3" -- experimental: right-click drag
-// down-right (diagonal), then hold the LEFT mouse button for the entered
-// time (ms). For testing camera interactions the standard setup doesn't
-// produce; nothing in the macro run uses it.
+// Settings > Debug > "Camera Setup 3" -- experimental: the Camera Setup
+// tilt, then hold the Left arrow key for the entered time (ms). The same
+// rotate Expedition's Pre Start runs for 730ms, here with any hold for
+// tuning.
 async function runCameraSetup3(btn) {
   const original = btn.textContent;
   const msInput = document.getElementById('camera-setup-3-ms');
@@ -1875,7 +1875,7 @@ async function runCameraSetup3(btn) {
   } catch (e) {
     btn.textContent = 'Failed';
   }
-  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, Math.max(3200, holdMs + 1200));
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, Math.max(4300, holdMs + 2300));
 }
 
 // Settings > Debug > "Camera Yaw Check" -- the diagnostic for "sometimes the

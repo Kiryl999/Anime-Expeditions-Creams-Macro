@@ -323,7 +323,7 @@ def restore_window(window_id: int) -> bool:
     return True
 
 
-# Cursor confinement for core.camera's drag is a fix for Roblox losing the
+# Cursor confinement for core.camera's look-down is a fix for Roblox losing the
 # cursor on a slow Windows Remote Desktop session (see window_win's
 # clip_cursor). macOS has no ClipCursor and the problem was only ever seen
 # there -- honest no-ops, same as the minimize pair above.

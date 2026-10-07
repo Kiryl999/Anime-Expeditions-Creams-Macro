@@ -661,14 +661,14 @@ TELEPORT_IN_TIMEOUT = 30.0
 # nav_unitmanager (the "teleport finished" confirmation above) is a HUD
 # element -- it can render before the character/camera controller has
 # actually finished attaching to the freshly-spawned avatar, which the Pre
-# Start camera drag doesn't wait on or verify at all (it's a blind
-# right-click-and-move sequence). Reported live, rarely: the camera drag
-# fires a beat too early and the right-click-drag/scroll doesn't register
-# that time. This settle is the fix -- see _run_prestart.
+# Start camera setup doesn't wait on or verify at all (it's a blind
+# sequence of key holds and mouse moves). Reported live, rarely: the camera
+# setup fires a beat too early and doesn't register that time. This settle
+# is the fix -- see _run_prestart.
 CAMERA_SETUP_SETTLE = 0.6
 # The same "nav_unitmanager is up but the world isn't ready" problem, on the
 # Repeat Stage path. A first entry gets CAMERA_SETUP_SETTLE plus the camera
-# drag itself (a 730ms hold and its O taps) plus Team Loadout before any
+# setup itself (seconds of key holds) plus Team Loadout before any
 # unit is placed -- seconds of incidental settling. A repeat skips all
 # three and goes straight from "Teleported in-game" to Place Unit, with
 # nothing between them.

@@ -3731,7 +3731,7 @@ class Api:
         # standard macro viewpoint. Actual sequence lives in core.camera
         # (shared with the macro run's automatic Pre Start step) -- this is
         # just the on-demand trigger, run on a background thread since the
-        # whole sequence takes ~3s and none of it needs anything else
+        # whole sequence takes ~4s and none of it needs anything else
         # coordinated.
         hwnd = self.game_hwnd
         if not hwnd or not wm.is_window(hwnd):
@@ -3755,7 +3755,7 @@ class Api:
         return {"ok": True}
 
     def debug_camera_setup_2(self, hold_ms) -> dict:
-        # Settings > Debug > "Camera Setup 2": same drag-down-then-zoom
+        # Settings > Debug > "Camera Setup 2": same tilt-then-zoom
         # sequence as Camera Setup, but with a caller-supplied O-hold
         # duration instead of the fixed 2s -- for testing how long the
         # zoom-out actually needs.
@@ -3782,11 +3782,11 @@ class Api:
         return {"ok": True}
 
     def debug_camera_setup_3(self, hold_ms) -> dict:
-        # Settings > Debug > "Camera Setup 3": the standard right-click
-        # drag-down pitch pin, then HOLD the Left arrow key for a
-        # caller-supplied time instead of the O zoom-hold -- the same
-        # sequence Expedition's Pre Start runs with a 750ms hold (see
-        # core.camera.run_camera_drag_hold), runnable here with any hold
+        # Settings > Debug > "Camera Setup 3": the standard top-down
+        # tilt, then HOLD the Left arrow key for a caller-supplied time
+        # instead of the O zoom-hold -- the same sequence Expedition's Pre
+        # Start runs with a 730ms hold (see
+        # core.camera.run_camera_rotate_hold), runnable here with any hold
         # time for tuning.
         hwnd = self.game_hwnd
         if not hwnd or not wm.is_window(hwnd):
@@ -3802,8 +3802,8 @@ class Api:
         def run():
             from core import camera
             try:
-                camera.run_camera_drag_hold(self.mouse, self.keyboard, hwnd, hold_ms=hold_ms)
-                self.push_log(f"[Debug] Camera setup 3 done (drag down, {hold_ms:.0f}ms Left-arrow hold).")
+                camera.run_camera_rotate_hold(self.mouse, self.keyboard, hwnd, hold_ms=hold_ms)
+                self.push_log(f"[Debug] Camera setup 3 done (tilted down, {hold_ms:.0f}ms Left-arrow hold).")
             except Exception as exc:
                 self.push_log(f"[Debug] Camera setup 3 failed: {exc}")
 
@@ -3815,7 +3815,7 @@ class Api:
         # "sometimes the map is visibly turned and the walk path runs the
         # wrong way". Roblox movement is camera-relative and the spawn yaw
         # varies between entries into the same map, which core.camera's
-        # setup (a straight-down drag) pins the pitch of but never the yaw
+        # setup (a straight-down look) pins the pitch of but never the yaw
         # -- see core.camera_yaw for the measurement.
         #
         # Three actions rather than one button: capturing a reference and

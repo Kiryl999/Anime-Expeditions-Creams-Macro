@@ -80,7 +80,7 @@ def test_camera_setup_switched_off_in_the_template_is_skipped(monkeypatch):
 def test_camera_setup_off_skips_the_expedition_sequence_too(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        runner_module.camera, "run_camera_drag_hold",
+        runner_module.camera, "run_camera_rotate_hold",
         lambda *_a, **_kw: calls.append("camera"))
     _template_with(monkeypatch, {"camera": False, "prestart": [], "battle": []})
 

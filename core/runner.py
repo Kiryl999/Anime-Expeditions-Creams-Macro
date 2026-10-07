@@ -3250,9 +3250,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # re-teleport, so re-running just re-dragged an already-correct
         # camera off its spot every loop.
         #
-        # Expedition gets its own sequence: the standard drag-down + O
+        # Expedition gets its own sequence: the standard tilt + O
         # zoom-hold doesn't frame Expedition maps right, so it uses the
-        # drag-down + Left-arrow rotate instead (the same sequence Settings
+        # tilt + Left-arrow rotate instead (the same sequence Settings
         # > Debug > Camera Setup 3 tests) -- 730ms rotate, then a short O
         # tap for a small zoom step (duration user-tunable: Settings >
         # Debug > "Expedition Camera Zoom", 100ms default).
@@ -3262,8 +3262,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # position, e.g. ones that only turn on the game's own Auto Play.
         if first_repeat and not self._camera_setup_enabled(task):
             # Same settle a repeat keeps when it skips the camera (see
-            # REPEAT_ENTRY_SETTLE): the drag was the only thing standing
-            # between teleporting in and the first block.
+            # REPEAT_ENTRY_SETTLE): the camera setup was the only thing
+            # standing between teleporting in and the first block.
             self._log(f'[Macro] Pre Start: camera setup is switched off in "{task.get("macro")}" -- '
                       f"skipping it. Letting the map settle for {REPEAT_ENTRY_SETTLE:.0f}s.")
             self._interruptible_sleep(REPEAT_ENTRY_SETTLE, stop_event)
@@ -3273,17 +3273,17 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # nav_unitmanager (just confirmed by _wait_teleport_in) is a HUD
             # element and can render a beat before the character/camera
             # controller has actually finished attaching to the freshly-
-            # spawned avatar -- this blind right-click-drag has no visual
-            # confirmation of its own to wait on, so a short settle here is
-            # what catches that rare case instead of dragging on a camera
-            # that isn't ready to receive it yet.
+            # spawned avatar -- this blind key-and-mouse sequence has no
+            # visual confirmation of its own to wait on, so a short settle
+            # here is what catches that rare case instead of turning a
+            # camera that isn't ready to receive it yet.
             self._interruptible_sleep(CAMERA_SETUP_SETTLE, stop_event)
             if self._checkpoint(stop_event):
                 return False
             try:
                 if task.get("mode") == "expedition":
-                    camera.run_camera_drag_hold(self._mouse, self._keyboard, hwnd, hold_ms=730,
-                                                 o_tap_ms=self._expedition_camera_o_ms)
+                    camera.run_camera_rotate_hold(self._mouse, self._keyboard, hwnd, hold_ms=730,
+                                                  o_tap_ms=self._expedition_camera_o_ms)
                 else:
                     camera.run_camera_setup(self._mouse, self._keyboard, hwnd)
                 self._log("[Macro] Camera setup done.")

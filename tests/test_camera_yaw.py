@@ -157,7 +157,7 @@ def test_align_reports_failure_instead_of_walking_an_unaligned_route(monkeypatch
 
 def test_align_never_leaves_an_arrow_key_held_down(monkeypatch, instant_align):
     # An arrow key left down would keep rotating the camera for the rest of
-    # the run -- the same failure core.camera guards its drag against.
+    # the run -- the same failure core.camera guards its keys against.
     fake = FakeCamera(20.0)
     monkeypatch.setattr(camera_yaw, "measure", fake.measure)
     keyboard = FakeKeyboard(fake)
