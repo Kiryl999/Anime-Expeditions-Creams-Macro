@@ -2,6 +2,12 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.17] - 2026-10-07
+
+### Fixed
+- **Portal runs keep going after the game's October update**: a won portal round now ends on the offer of three new portals alone -- no Victory screen and no Select Portal follow it, and the portal you take there starts its round by itself. The macro still takes the middle portal, now counts that as the win, waits for the new round's Start Game and plays it like any repeat: Pre Start places your units, then Start Game. If the offer is still up because the click did not register, the middle portal is clicked again. On a task's last repeat, or when Challenge, Auto Crafting, Auto Fuel, Auto Shop or the Periodic Roblox Refresh is due, the macro leaves that new round through To Lobby, since there is no Leave Stage screen anymore. Starting a portal from the lobby -- Inventory, Portals tab, search, Activate -- is unchanged. Keep in mind that the round after a win is always the middle portal from the offer, not the Portal Name set in the task. Portal wins reach the match result webhook without a screenshot, as there is no result screen to capture.
+- **Camera Setup no longer holds the right mouse button**: over Remote Desktop the camera setup could still take the macro out of Roblox, even with the pointer kept inside the game since 0.21.16. It now tilts the camera through first person instead: it holds I to zoom all the way in, moves the mouse down to look at the ground and holds O to zoom back out, which leaves the camera looking straight down -- half a second each. The normal setup then holds O for 2 seconds as before, so it ends on the same view your Place Unit and Walk Path positions were recorded against. This covers every camera setup: Pre Start, the Expedition camera, the Gold Shop and the Camera Setup buttons under Settings > Debug. The Expedition camera now starts from that close first-person zoom instead of the zoom you entered with, so if units land off on Expedition maps, adjust Settings > Debug > **Expedition Camera Zoom**.
+
 ## [0.21.16] - 2026-10-06
 
 ### New
