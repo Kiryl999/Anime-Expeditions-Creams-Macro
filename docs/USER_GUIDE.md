@@ -206,6 +206,23 @@ Open **Task**, add tasks in the order they should run, and configure each one:
 4. Assign the saved Macro Manager operation to the task.
 5. Save the queue or export it if you want a backup/shareable setup.
 
+### Monster Clash
+
+**Monster Clash** is the Battle Event in the Events menu. A task goes Events >
+Monster Clash > Play Event > Play - Choose Stage > Select Stage > Start, always
+Solo, and plays the map with its Macro Operation. Sometimes a cleared map spawns a
+helicopter instead of the Victory screen -- all that shows is the **Game
+Results** button. The macro then waits about 15 seconds, presses E to board it,
+and plays the second map it flies to, placing the units again with the task's
+**Macro Operation (Helicopter)** ("Same as above" reuses the first one). One
+repeat is one such run. Either map's result screen only leads back to the
+lobby, so every repeat goes in through the Events menu again. The crops for
+the way in ship with the macro -- `monster_clash` (the entry in the Events
+menu), `monster_clash_play_event` and `monster_clash_choose_stage`; if one does
+not match on your setup, add another crop under the same name in the Image
+Manager. A task whose crop folder is left empty is skipped with a note in the
+log.
+
 ### Raid maps
 
 Both raid stories -- **Spirit City** and **Snowy Castle** -- sit in the same

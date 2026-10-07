@@ -94,6 +94,8 @@ class MatchResultProbe:
     def _release_quick_place_shift(self):
         return None
 
+    _repeats_in_place = staticmethod(MacroRunner._repeats_in_place)
+
     def _set_status(self, **kwargs):
         self.statuses.append(kwargs)
 

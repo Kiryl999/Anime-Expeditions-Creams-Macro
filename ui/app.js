@@ -2331,6 +2331,15 @@ const TASK_DATA = {
     bossAfter: ['2', '3', '4', '5', '6'],
     isBossRush: true,
   },
+  monster_clash: {
+    label: 'Monster Clash',
+    // The Events menu's Battle Event: Events > Monster Clash > Play Event >
+    // Play - Choose Stage > Select Stage > Start. No map to pick and Solo
+    // only. One repeat is one run -- the map, plus the helicopter's map when a
+    // cleared map spawns one, placed by helicopter_macro. See
+    // core/runner_monster_clash.py.
+    isMonsterClash: true,
+  },
   tower: {
     label: 'Tower',
     maps: ['Rose Kingdom'],  // internal default only -- Tower has no map picker in-game
@@ -2378,6 +2387,9 @@ function defaultTask() {
     // gatePathList, which pads it to one per gate). Carried on every task
     // for the same reason as eclipse_card.
     boss_after: '2', boss_macro: '', gate_paths: [], gate_sprint: false,
+    // Monster Clash: the Macro Operation that places the units again on the
+    // helicopter's map ('' = the task's own).
+    helicopter_macro: '',
     // Auto Fishing is per TASK, not a global coordinate: where the water is
     // depends on where the character was parked, so two tasks on two maps
     // carry two points. Off until a point is picked.
@@ -2587,9 +2599,11 @@ async function importSettings() {
 // queue arrived referencing a macro the recipient did not have -- and the
 // export still reported success.
 function taskMacroNames(task) {
-  // Boss Rush places its units twice, the second time with its own macro.
+  // Boss Rush places its units twice, the second time with its own macro --
+  // and so does Monster Clash when the helicopter takes it to a second map.
   const boss = task.mode === 'boss_rush' ? task.boss_macro : '';
-  return [task.macro, boss].filter(Boolean);
+  const helicopter = task.mode === 'monster_clash' ? task.helicopter_macro : '';
+  return [task.macro, boss, helicopter].filter(Boolean);
 }
 
 // Recorded walks a task points at directly rather than through its macro --
@@ -2936,6 +2950,10 @@ function setTaskProp(id, key, value) {
       t.play_mode = 'solo';
       if (!d.bossAfter.includes(String(t.boss_after))) t.boss_after = d.bossAfter[0];
     }
+    if (d.isMonsterClash) {
+      t.map = 'Monster Clash';  // no map to pick; a label keeps logs/status readable
+      t.play_mode = 'solo';
+    }
   }
   if (key === 'stage' && (value === 'Infinite' || value === 'infinite') && !Number.isInteger(Number(t.infinite_wave_limit))) {
     t.infinite_wave_limit = DEFAULT_INFINITE_WAVE_LIMIT;
@@ -2950,7 +2968,7 @@ function taskOpts(list, current, fmt) {
 }
 
 // One accent per mode so the queue scans by color before you even read it.
-const TASK_MODE_COLORS = { story: 'var(--brand)', raid: 'var(--rose)', expedition: 'var(--teal)', event: 'var(--amber)', tournament: 'var(--lilac)', tower: 'var(--slate)', eclipse: 'var(--lilac)', boss_rush: 'var(--rose)' };
+const TASK_MODE_COLORS = { story: 'var(--brand)', raid: 'var(--rose)', expedition: 'var(--teal)', event: 'var(--amber)', tournament: 'var(--lilac)', tower: 'var(--slate)', eclipse: 'var(--lilac)', boss_rush: 'var(--rose)', monster_clash: 'var(--amber)' };
 
 // The two text lines a queue row shows for a task -- where it goes, then how
 // it runs. All editing happens in the Builder, rows are read-only summaries.
@@ -2988,10 +3006,12 @@ function taskSummary(t) {
         ? `Restart after wave ${t.infinite_wave_limit || DEFAULT_INFINITE_WAVE_LIMIT}` : '',
     t.tower_mode === 'traitless' ? 'Traitless' : '',
     t.mode === 'eclipse' ? `${t.repeat || 1} cycle${(t.repeat || 1) === 1 ? '' : 's'}` : '',
-    (t.mode === 'tournament' || t.mode === 'tower' || t.mode === 'eclipse' || t.mode === 'boss_rush')
+    (t.mode === 'tournament' || t.mode === 'tower' || t.mode === 'eclipse' || t.mode === 'boss_rush'
+     || t.mode === 'monster_clash')
       ? '' : (t.play_mode === 'matchmaking' ? 'Matchmaking' : 'Solo'),
     t.macro ? `▸ ${t.macro}` : '',
     (t.mode === 'boss_rush' && t.boss_macro) ? `Boss ▸ ${t.boss_macro}` : '',
+    (t.mode === 'monster_clash' && t.helicopter_macro) ? `Helicopter ▸ ${t.helicopter_macro}` : '',
   ].filter(Boolean).join(' · ');
   return { title, meta };
 }
@@ -3164,9 +3184,10 @@ function renderTaskBuilder() {
       `Number of extraction prompts to decline before extracting (maximum ${MAX_EXTRACT_AFTER})`));
   }
 
-  // Tournament, Tower and Boss Rush have no Solo/Matchmaking choice -- their
-  // runner paths force the solo Start tail, so the toggle would be a no-op.
-  if (t.mode !== 'tournament' && t.mode !== 'tower' && t.mode !== 'boss_rush') {
+  // Tournament, Tower, Boss Rush and Monster Clash have no Solo/Matchmaking
+  // choice -- their runner paths force the solo Start tail, so the toggle
+  // would be a no-op.
+  if (t.mode !== 'tournament' && t.mode !== 'tower' && t.mode !== 'boss_rush' && t.mode !== 'monster_clash') {
     const playSeg = `
       <div class="seg-toggle" data-tooltip="Select Solo or Matchmaking / Party mode">
         <button type="button" class="seg-btn ${t.play_mode === 'solo' ? 'active' : ''}" onclick="setTaskProp('${t.id}', 'play_mode', 'solo'); renderTaskBuilder()">Solo</button>
@@ -3198,6 +3219,17 @@ function renderTaskBuilder() {
       </select>`;
     fields.push(field('Macro Operation (Boss)', bossSel,
       'The boss arena starts empty -- this places every unit again. "Same as Gates" reuses the one above'));
+  }
+  if (t.mode === 'monster_clash') {
+    // The helicopter flies to a second map that starts empty, so the units
+    // are placed again -- usually at other spots than on the first map.
+    const heliSel = `
+      <select class="task-select" onchange="setTaskProp('${t.id}', 'helicopter_macro', this.value)" data-tooltip="Places the units again on the helicopter's map">
+        <option value="">Same as above</option>
+        ${taskTemplates.map(n => `<option value="${escapeHtml(n)}" ${n === t.helicopter_macro ? 'selected' : ''}>&#9654; ${escapeHtml(n)}</option>`).join('')}
+      </select>`;
+    fields.push(field('Macro Operation (Helicopter)', heliSel,
+      'The helicopter\'s map starts empty -- this places every unit again. "Same as above" reuses the Macro Operation above'));
   }
 
   // Auto Fishing. Offered on every mode -- fishing is a map property, not a
@@ -3239,11 +3271,14 @@ function renderTaskBuilder() {
       ? `<div class="wh-hint"><b>Restart After Wave</b> completes the wave you enter, waits for the counter to advance once, then restarts the game from Settings (Restart Game) -- your units stay placed -- and presses Start Game again. Each restart counts as one repeat. It leaves the stage instead on the task's last repeat, when Challenge, Crafting, Fuel, Shop or a Roblox refresh is due, or if the restart does not go through. For example, 20 restarts when wave 21 begins. Needs the <code>restart_btn</code> and <code>restart_confirm</code> crops (Settings &gt; General &gt; Image Manager).</div>` : '';
   const bossRushHint = t.mode === 'boss_rush'
     ? `<div class="wh-hint">One repeat is one whole run: Start Game at the spawn, then for each gate up to <b>Boss After Gate</b> -- walk its path, E, Start Game, clear it, take the middle card -- and after that gate Fight Boss. The Gates Macro Operation places your units in the first gate; they stay placed for the later ones. The boss arena starts empty, so the Boss Macro Operation places them again. Needs the <code>boss_rush</code> crops -- each <code>Assets/ui/boss_rush*</code> folder has a <code>_WHAT_TO_CROP.txt</code>.</div>` : '';
+  const monsterClashHint = t.mode === 'monster_clash'
+    ? `<div class="wh-hint">One repeat is one run: Events &gt; Monster Clash &gt; Play Event &gt; Play - Choose Stage &gt; Select Stage &gt; Start, then the usual Pre Start and battle. Sometimes a cleared map spawns a helicopter instead of the Victory screen -- only <b>Game Results</b> shows. The macro then waits about 15s, presses E to board it, and plays the second map it flies to with the <b>Helicopter</b> Macro Operation. Either way the run ends back in the lobby, and the next repeat goes in through the Events menu again. The crops for the way in are included (<code>monster_clash</code>, <code>monster_clash_play_event</code>, <code>monster_clash_choose_stage</code>); if one does not match your setup, add another under the same name via Settings &gt; General &gt; Image Manager.</div>` : '';
   el.innerHTML = `
     <div class="task-builder-grid">${fields.join('')}</div>
     ${extractHint}
     ${infiniteHint}
     ${bossRushHint}
+    ${monsterClashHint}
     ${t.fishing ? `<div class="wh-hint">Auto Fishing casts at the Water Point while the round runs, and stops when it ends. It does not move your character -- park it at the water with a Walk Path block in the Macro Operation, which also re-runs after a Challenge interleave. Needs <code>fishing_rod</code> and <code>fishing_xp</code> crops (Settings &gt; General &gt; Image Manager). A catch lands in the 6 fish slots and pays nothing until it is dealt with: add a crop per fish to <code>wanted_fish</code> (clicked once to cash in) and <code>unwanted_fish</code> (dragged to the bin). Pick the slot row once under Settings &gt; Debug &gt; Macro Coordinates &gt; Fish Slots. Without that, or with the folders empty, the slots are left alone.</div>` : ''}
     <div class="wh-hint" style="margin-top: 8px;">The macro's Team Loadout comes from its template (Macro Manager tab).</div>
     <div class="flex items-center gap-2" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
@@ -6706,6 +6741,9 @@ const IMAGE_DESCRIPTIONS = {
   select_new_portal: "No longer used: a won portal round goes straight on into the next portal's round, with no Victory screen or 'Select Portal' button in between.",
   world_boss_ancient_one: "The World Boss 'The Ancient One' entry in the Events menu (Resource > Auto Challenge > World Boss) -- clicked after the lobby's Events button.",
   world_boss_enter_encounter: "The World Boss screen's 'Enter Encounter' button -- clicked after the Ancient One entry.",
+  monster_clash: "The Battle Event 'Monster Clash' entry in the Events menu -- the Monster Clash task's way in, clicked after the lobby's Events button.",
+  monster_clash_play_event: "The Monster Clash screen's 'Play Event' button -- clicked after the Monster Clash entry.",
+  monster_clash_choose_stage: "The Monster Clash 'Play - Choose Stage' button -- clicked after Play Event, before the usual Select Stage and Start.",
   team: "The Team Loadout panel (opened with H).",
   teleportstuck: "Legacy normal-loading reference; no longer used as a disconnect signal.",
   toggle_false: "A Settings toggle in its OFF state.",

@@ -2338,10 +2338,12 @@ class Api:
         except OSError:
             have = set()
         # boss_macro: a Boss Rush task places its units a second time, for
-        # the boss, with its own Macro Operation.
+        # the boss, with its own Macro Operation -- and helicopter_macro does
+        # the same on a Monster Clash helicopter's map.
         missing = sorted({name for t in tasks if isinstance(t, dict)
                           for name in (t.get("macro"),
-                                       t.get("boss_macro") if t.get("mode") == "boss_rush" else None)
+                                       t.get("boss_macro") if t.get("mode") == "boss_rush" else None,
+                                       t.get("helicopter_macro") if t.get("mode") == "monster_clash" else None)
                           if name and name not in have})
         label = data.get("name") or name
         # Three different empty-queue outcomes, each worth saying differently:

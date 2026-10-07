@@ -649,6 +649,24 @@ WORLD_BOSS_MAP = "Ancient One"
 # played by then counts as closed (see main.Api.get_challenge_settings).
 WORLD_BOSS_SET_OUT_SECONDS = 9 * 60
 
+# Monster Clash (a Task Builder mode, the Events menu's Battle Event): clicked
+# in this order after the lobby's Events button (nav_event), then the shared
+# Select Stage + Start tail. See core/runner_monster_clash.py.
+MONSTER_CLASH_ENTRY_IMAGES = ("monster_clash", "monster_clash_play_event", "monster_clash_choose_stage")
+MONSTER_CLASH_MAP = "Monster Clash"
+# A cleared map can spawn a helicopter instead of the Victory screen; then only
+# the "Game Results" button shows (GAME_RESULTS_IMAGE). Up this long without a
+# break, and with no Victory/Defeat, it counts as the helicopter -- the button
+# can show a beat before a result panel slides in over it.
+MONSTER_CLASH_HELICOPTER_CONFIRM = 3.0
+# The helicopter takes boarders about 15s after the button shows up, and E
+# boards it. Boarded means the button is gone this long after an E.
+MONSTER_CLASH_HELICOPTER_BOARD_AFTER = 15.0
+MONSTER_CLASH_HELICOPTER_BOARD_ATTEMPTS = 4
+MONSTER_CLASH_HELICOPTER_BOARD_VERIFY = 3.0
+# It flies to a second map; that map's Start Game says it has loaded.
+MONSTER_CLASH_HELICOPTER_MAP_TIMEOUT = 60.0
+
 EXPEDITION_DIFFICULTY_CLICK = (441, 524)
 EXPEDITION_DIFFICULTY_CLICK_DELAY = 0.1  # lets each increment register before the next click
 

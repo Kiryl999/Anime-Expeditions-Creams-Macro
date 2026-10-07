@@ -41,6 +41,7 @@ from .runner_eclipse import EclipseOps
 from .runner_expedition import ExpeditionOps
 from .runner_event import EventOps
 from .runner_fuel import FuelOps
+from .runner_monster_clash import MonsterClashOps
 from .runner_portals import PortalsOp
 from .runner_shop import ShopOps
 
@@ -119,7 +120,7 @@ def _find_team_load_button(frame, expected_y):
 
 
 class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, ExpeditionOps,
-                   BlockOps, EventOps, PortalsOp, EclipseOps, BossRushOps):
+                   BlockOps, EventOps, PortalsOp, EclipseOps, BossRushOps, MonsterClashOps):
     """One run's worth of state -- module-level singleton via main.Api, same
     pattern as core.paths._recorder, since only one run can realistically be
     active at a time (one physical game window, one macro)."""
@@ -1473,6 +1474,11 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # Boss Rush has no party variant in the Task Builder; pinning Solo
             # here keeps a stale field from sending it to Enter Matchmaking.
             task = dict(task, play_mode="solo")
+        if mode == "monster_clash":
+            # Same up-front refusal and the same Solo pin as Boss Rush.
+            if not self._monster_clash_preflight(task):
+                return True
+            task = dict(task, play_mode="solo")
         progress_task = dict(task)
         progress_task["map"] = map_name or mode.title()
         # The running task, so mid-match handlers can ask which map they are
@@ -1867,11 +1873,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                     continue
 
                 if not is_last_repeat:
-                    if left_live_match or task.get("play_mode") == "matchmaking":
+                    if left_live_match or not self._repeats_in_place(task):
                         # Leave Stage (see _handle_match_result -- matchmaking
-                        # always leaves, never Repeat Stage), or the Infinite
-                        # wave-limit exit, puts us back in the lobby rather
-                        # than a repeat teleport -- re-enter from scratch.
+                        # and Monster Clash always leave, never Repeat Stage),
+                        # or the Infinite wave-limit exit, puts us back in the
+                        # lobby rather than a repeat teleport -- re-enter from
+                        # scratch.
                         if not self._run_task_setup(hwnd, stop_event, task, mode, map_name, coords,
                                                       scroll_power, scroll_nudges, webhook):
                             if stop_event.is_set():
@@ -1979,6 +1986,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # as the map path, for the same reason (a failed attempt leaves
             # nothing safe to assume).
             if not self._run_event_setup(hwnd, stop_event, task, scroll_power, scroll_nudges):
+                return False
+            if self._checkpoint(stop_event):
+                return False
+        elif mode == "monster_clash":
+            # Lobby -> Events -> Monster Clash -> Play Event -> Choose Stage
+            # (see MonsterClashOps._run_monster_clash_setup), then the shared
+            # Select Stage + Start tail below.
+            if not self._run_monster_clash_setup(hwnd, stop_event):
                 return False
             if self._checkpoint(stop_event):
                 return False
@@ -2181,6 +2196,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         if task.get("mode") == "boss_rush":
             return self._play_boss_rush_run(hwnd, stop_event, task, default_walk_paths,
                                             first_repeat=first_repeat, webhook=webhook)
+        # Same for Monster Clash: one map, or two when a helicopter spawns.
+        if task.get("mode") == "monster_clash":
+            return self._play_monster_clash_run(hwnd, stop_event, task, default_walk_paths,
+                                                first_repeat=first_repeat, webhook=webhook)
         if not self._start_game_or_reset_via_settings(hwnd, stop_event, task.get("play_mode")):
             return None
         if self._checkpoint(stop_event):
@@ -2349,6 +2368,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         except (TypeError, ValueError):
             return FISHING_CLICK_INTERVAL
         return max(1.0, value)
+
+    @staticmethod
+    def _repeats_in_place(task: dict) -> bool:
+        """Whether the next repeat starts from this one's result screen
+        (Repeat Stage) rather than going back in through the lobby. Never
+        under Matchmaking, and never in Monster Clash -- see
+        _handle_match_result."""
+        return task.get("play_mode") != "matchmaking" and task.get("mode") != "monster_clash"
 
     @staticmethod
     def _wants_portal_offer_watch(task: dict) -> bool:
@@ -2590,11 +2617,13 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
     def _wait_for_match_result(self, hwnd, stop_event: threading.Event, battle_blocks: list = None,
                                  first_repeat: bool = True, macro_name: str = None, mode: str = None,
                                  watch_close_popup: bool = False, webhook: dict = None, task: dict = None,
-                                 watch_gate_clear: bool = False) -> str:
+                                 watch_gate_clear: bool = False, watch_helicopter: bool = False) -> str:
         """Poll the running match until it ends. Returns "win"/"loss", an
         Infinite exit ("wave_limit"/"restarted"), "left", or None on
         failure/stop -- and, only with watch_gate_clear, "gate_cleared" when a
-        Boss Rush gate is done (see BossRushOps._boss_rush_gate_cleared)."""
+        Boss Rush gate is done (see BossRushOps._boss_rush_gate_cleared), and
+        only with watch_helicopter, "helicopter" when a cleared Monster Clash
+        map spawned one (see MonsterClashOps)."""
         self._log("[Macro] Battle in progress -- watching for Victory/Defeat...")
         watch_portal_offer = self._wants_portal_offer_watch(task or {})
         # Resolved once per match, not per poll tick: the lookup logs which
@@ -2621,6 +2650,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         lobby_sightings = 0   # consecutive polls that found the lobby's Play button
         afk_clicked_at = 0.0  # last time the AFK Chamber exit was clicked
         results_state = {"seen_since": 0.0, "clicked_at": 0.0}  # see _reopen_game_results
+        helicopter_since = 0.0  # watch_helicopter: when the lone Game Results button showed up
         # {"handled_at", "seen_at"} -- the settle is deferred, not slept, so the
         # poll loop keeps picking upgrade cards and clicking Continues meanwhile.
         encounter_state = {"handled_at": 0.0, "seen_at": 0.0}
@@ -2743,7 +2773,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
             afk_clicked_at = self._dismiss_afk_chamber(hwnd, afk_clicked_at)
 
-            self._reopen_game_results(hwnd, results_state)
+            # In Monster Clash a lone Game Results button is the helicopter,
+            # not a result panel that shut -- see the check after Defeat.
+            if not watch_helicopter:
+                self._reopen_game_results(hwnd, results_state)
             if time.time() - results_state["clicked_at"] < GAME_RESULTS_CLICK_COOLDOWN:
                 # Hold the other clicks (a fishing cast in particular) off
                 # while the panel animates back in, so nothing lands on it
@@ -2832,6 +2865,19 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if defeat_match is not None:
                 self._log(f"[Macro] Defeat. (score {defeat_match['score']:.2f})")
                 return "loss"
+            # A cleared Monster Clash map that spawned a helicopter shows no
+            # Victory, only the Game Results button. Checked after Victory and
+            # Defeat, and only once it has stayed a while, since the button
+            # can show a beat before a result panel slides in.
+            if watch_helicopter:
+                if self._monster_clash_game_results(hwnd) is None:
+                    helicopter_since = 0.0
+                elif not helicopter_since:
+                    helicopter_since = time.time()
+                elif time.time() - helicopter_since >= MONSTER_CLASH_HELICOPTER_CONFIRM:
+                    self._log("[Macro] Monster Clash: map cleared, and only Game Results is up -- "
+                              "a helicopter spawned.")
+                    return "helicopter"
             time.sleep(MATCH_RESULT_POLL_INTERVAL)
         self._log(f'[Macro] Neither "victory" nor "defeat" matched within {MATCH_RESULT_TIMEOUT / 60:.0f} min. '
                    f'If the result screen was actually showing, its reference image isn\'t matching your '
@@ -2951,7 +2997,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # Same "matchmaking never repeats in place" rule as Repeat Stage
             # below.
             return self._carry_on_after_portal_win(
-                hwnd, stop_event, keep_playing=repeat and task.get("play_mode") != "matchmaking")
+                hwnd, stop_event, keep_playing=repeat and self._repeats_in_place(task))
 
         # The cursor is moved to the same near-empty corner
         # _reset_unit_info_panel uses first, so a leftover hover
@@ -2996,9 +3042,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # and go through Enter Matchmaking again from the lobby (see
         # _run_task's repeat loop, which re-runs _run_task_setup instead of
         # _wait_teleport_in whenever this is why it's about to see Leave
-        # Stage clicked with more repeats still left).
-        is_matchmaking = task.get("play_mode") == "matchmaking"
-        if repeat and not is_matchmaking:
+        # Stage clicked with more repeats still left). Monster Clash leaves
+        # too: its result screens only lead back to the lobby.
+        if repeat and self._repeats_in_place(task):
             # More repeats left on this task -- Repeat Stage re-queues the
             # same stage directly, skipping the lobby/gamemode/map/stage
             # picks entirely (see _run_task_setup, which only runs once per
