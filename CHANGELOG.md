@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.17.2] - 2026-10-07
+
+### New
+- **Camera Setup timing can be set in Settings**: the camera setup holds I to zoom into first person, moves the mouse down and holds O to zoom back out, then holds O once more to zoom all the way out. Roblox zooms a step per frame, so where it runs at fewer frames -- over Remote Desktop in particular -- the same hold zooms less far, and the camera can end up not looking straight down or not fully zoomed out. Settings > Debug has a new **Camera Setup Timing** panel with all four times: **Zoom In (I)**, **Look Down (Mouse)**, **Zoom Out (O)** and **Full Zoom Out (O)**. The defaults -- 500, 500, 500 and 2000 ms -- are the sequence as it ran so far, so nothing changes until you change them, and **Reset to Defaults** puts them back. Holding I or the full zoom-out longer than needed changes nothing, so raising those two is safe. The times apply from the next Start to every camera setup -- Pre Start, the Expedition camera and the Gold Shop -- and the Camera Setup buttons under Settings > Debug use them right away, so you can try a setting there first.
+
 ## [0.21.17] - 2026-10-07
 
 ### Fixed
