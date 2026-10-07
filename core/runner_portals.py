@@ -2,10 +2,14 @@
 
 From the lobby, open the Inventory (nav_inv), switch to the Portals tab
 (normal_portals_nav), and pick the task's portal on the picker there. The
-same picker opens again from the Victory screen's "Select Portal" button to
-queue up the next one. The picker selection drives off the PORTAL_SEARCHES
-regions (search box + the portal-card list), so it works however the picker
-was opened.
+picker selection drives off the PORTAL_SEARCHES regions (search box + the
+portal-card list).
+
+That picker is only the way IN. A won round ends on the game's three-portal
+offer, and the portal taken there starts its round by itself -- see
+_carry_on_after_portal_win. It used to end on a Victory screen whose "Select
+Portal" button reopened the picker; the game's October 2026 update dropped
+both.
 
 The Summer event's own "Portal Mode" card used to be a second way in; it was
 retired, since every portal -- Summer or not -- is reachable from here.
@@ -186,8 +190,8 @@ class PortalsOp:
         nothing is there does the search widen to the whole window. Widening
         is safe here because the query has already filtered the list down.
 
-        Waited for rather than looked at once -- the post-victory picker opens
-        over the result screen and is still filtering for a moment.
+        Waited for rather than looked at once -- the picker is still
+        filtering for a moment after the name is typed.
 
         Returns (match, name), or (None, None) when nothing was found.
         """
@@ -222,11 +226,11 @@ class PortalsOp:
         where to click its card -- or None.
 
         Boxed to the card list and never widened to the whole window the way
-        _find_portal_card is: this runs before the list is filtered, and the
-        post-victory picker opens over the result screen, so a stray "Summer
-        Portal" anywhere else on screen must not count. Re-looked until the
-        spot holds still, since the picker may still be sliding in, then
-        moved up off the text onto the card's art (PORTAL_NAME_CLICK_RISE).
+        _find_portal_card is: this runs before the list is filtered, so a
+        stray "Summer Portal" anywhere else on screen must not count.
+        Re-looked until the spot holds still, since the picker may still be
+        sliding in, then moved up off the text onto the card's art
+        (PORTAL_NAME_CLICK_RISE).
         """
         region = self._portal_list_region()
         try:
@@ -243,8 +247,7 @@ class PortalsOp:
                                  query: str = "summer") -> bool:
         """Pick the `query` portal on an already-open portal picker, then
         activate -- driven by the PORTAL_SEARCHES regions (search box +
-        portal-card list) so it's agnostic to how the picker was reached (the
-        Inventory Portals tab, or the Victory screen's Select Portal).
+        portal-card list).
 
         The portals look alike in the picker -- the same frame and art, only
         the name printed on the card differs -- so the NAME is what decides
@@ -351,17 +354,49 @@ class PortalsOp:
             return False
         return not self._checkpoint(stop_event)
 
-    def _select_portal_post_victory(self, hwnd, stop_event: threading.Event,
-                                    query: str = "summer") -> bool:
-        """Post-victory: click the Victory screen's "Select Portal" button,
-        then pick the next portal with `query` on the same picker the entry
-        uses (see _select_portal_on_picker).
+    def _carry_on_after_portal_win(self, hwnd, stop_event: threading.Event,
+                                   keep_playing: bool) -> bool:
+        """After a won portal round: wait for the next round, then play it
+        (keep_playing) or leave it for the lobby.
+
+        A won round ends on the three-portal offer alone. The portal taken
+        there (runner._take_portal_offer_if_found) starts its round by
+        itself, so with repeats left that round simply IS the next repeat,
+        and _run_task picks it up at Pre Start. When the task is done, or the
+        lobby is wanted between repeats, the round is left with the in-match
+        To Lobby button -- there is no result screen with Leave Stage to use
+        anymore. It is waited for first all the same: To Lobby on the old
+        round, mid-transition, is not a leave anyone can count on.
         """
-        self._set_status(action="Clicking Select Portal...")
-        if self._click_found_image(hwnd, "select_new_portal", EVENT_SCREEN_TIMEOUT, stop_event) is None:
-            self._spam_back_until_gone(hwnd, stop_event)
+        if not self._wait_for_next_portal_round(hwnd, stop_event):
             return False
-        if self._checkpoint(stop_event):
-            return False
-        time.sleep(SETTLE_DELAY)
-        return self._select_portal_on_picker(hwnd, stop_event, query)
+        if keep_playing:
+            self._log("[Macro] The next portal round is up -- continuing this task's repeats.")
+            return True
+        return self._leave_match_to_lobby(hwnd, stop_event, reason="Portals")
+
+    def _wait_for_next_portal_round(self, hwnd, stop_event: threading.Event) -> bool:
+        """Wait for the round the taken portal starts. Its Start Game button
+        is the sign: it is only on screen before a round has begun, so the
+        round just won can't be mistaken for it.
+
+        Takes the middle portal again while the offer is still up -- a click
+        the game never got (routine over Remote Desktop) would otherwise
+        leave the pick to the offer's timer, which takes one at random.
+        """
+        self._set_status(action="Waiting for the next portal round...")
+        deadline = time.time() + PORTAL_NEXT_ROUND_TIMEOUT
+        while time.time() < deadline:
+            # Pause first: right after the pick the offer may still be
+            # closing, and it is not worth a second click.
+            self._interruptible_sleep(PORTAL_NEXT_ROUND_POLL_INTERVAL, stop_event)
+            if self._checkpoint(stop_event):
+                return False
+            _, start_match = self._find_start_game_button(hwnd)
+            if start_match is not None:
+                return True
+            self._take_portal_offer_if_found(hwnd)
+        self._log(f"[Macro] The next portal round never showed its Start Game within "
+                  f"{PORTAL_NEXT_ROUND_TIMEOUT:.0f}s of taking the portal.")
+        self._save_debug_screenshot_unconditional(hwnd, "portal_next_round_timeout")
+        return False

@@ -157,18 +157,6 @@ def test_run_portal_selection_from_inventory_forwards_custom_query(monkeypatch):
     assert picked == ["sakura"]
 
 
-def test_select_portal_post_victory_uses_the_query(monkeypatch):
-    runner = _runner()
-    picked = []
-    runner._select_portal_on_picker = lambda hwnd, stop, query: picked.append(query) or True
-    monkeypatch.setattr(portal_module.time, "sleep", lambda s: None)
-    assert runner._select_portal_post_victory(1, threading.Event(), "sakura") is True
-    # Clicked the Victory screen's Select Portal, then the agnostic picker
-    # with the task's query.
-    assert ("image", "select_new_portal") in runner.clicked
-    assert picked == ["sakura"]
-
-
 # ---------------------------------------------------------------------------
 # A generic card never skips the search
 # ---------------------------------------------------------------------------

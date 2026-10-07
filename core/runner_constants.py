@@ -329,10 +329,9 @@ CLOSE_POPUP_RAID_STAGE = "3"
 # already waits MATCH_RESULT_POLL_INTERVAL between ticks.
 CLOSE_POPUP_VERIFY_DELAY = 0.45
 
-# A won portal round offers three NEW portals for about 20s before the
-# Victory screen renders. Left alone the timer runs out and the game picks
-# one at random, so the choice is watched for from inside the match poll
-# loop -- after the result there is nothing left to choose.
+# A won portal round ends on three NEW portals, offered for about 20s. Left
+# alone the timer runs out and the game picks one at random, so the choice is
+# watched for from inside the match poll loop.
 #
 # Same shape as Expedition's "select upgrade card" (see
 # runner._dismiss_reward_card_if_found): one image that is only on screen
@@ -340,11 +339,17 @@ CLOSE_POPUP_VERIFY_DELAY = 0.45
 # the middle card. Nothing here reads the three portals or their difficulty
 # -- the middle one is simply what gets taken.
 #
-# No crop ships for this: capture the offer's own heading/timer (something
-# that is NOT on screen at any other moment) under this name via
-# Settings > General > Image Manager. Without it the search reports the
-# image as missing once and the offer is left to time out, exactly as before.
+# The crops in this folder are cards the offer showed (portal art with the
+# name under it); a portal none of them fits can be added under this name
+# via Settings > General > Image Manager.
 PORTAL_OFFER_IMAGE = "portal_offer"
+# Since the game's October 2026 update the offer is ALL a won portal round
+# ends on: no Victory screen and no Select Portal follow it, and the round of
+# the portal taken there comes up by itself, waiting on Start Game. Up to the
+# ~20s offer when the pick was not registered (the timer then picks), plus
+# the new round's loading.
+PORTAL_NEXT_ROUND_TIMEOUT = 60.0
+PORTAL_NEXT_ROUND_POLL_INTERVAL = 1.0
 
 # Auto Fishing. Casting is a plain left-click on water, so the whole feature
 # is: get the rod out once, then click the same spot on a timer while the

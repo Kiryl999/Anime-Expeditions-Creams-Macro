@@ -1,6 +1,6 @@
 """Portal picker: search the task's portal name, click the card, confirm.
-Used both on entry (Inventory > Portals tab) and post-victory (after the
-Victory screen's Select Portal button). Plus how a portal's stage screen is
+Reached from the lobby (Inventory > Portals tab) -- a won round no longer
+comes back to it, see test_portal_offer. Plus how a portal's stage screen is
 entered afterwards."""
 
 import threading
@@ -55,12 +55,12 @@ def _runner():
     return runner
 
 
-def test_post_victory_clicks_select_portal_then_searches_then_confirms(monkeypatch):
+def test_the_picker_searches_then_confirms(monkeypatch):
     runner = _runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
-    assert runner._select_portal_post_victory(1, threading.Event(), "summer") is True
+    assert runner._select_portal_on_picker(1, threading.Event(), "summer") is True
     images = [call[1] for call in runner.clicked if call[0] == "image"]
-    assert images == ["select_new_portal", "portal_search", "portal_activate"]
+    assert images == ["portal_search", "portal_activate"]
     assert runner.typed == ["summer"]
 
 
@@ -131,7 +131,7 @@ def test_backs_out_when_the_confirm_is_missing(monkeypatch):
     runner._click_and_verify_gone = (
         lambda hwnd, stop_event, name, timeout, **k: runner.clicked.append(("image", name)) or (
             name != "portal_activate"))
-    assert runner._select_portal_post_victory(1, threading.Event(), "summer") is False
+    assert runner._select_portal_on_picker(1, threading.Event(), "summer") is False
     assert runner.backs == [1]
 
 

@@ -160,12 +160,6 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # picked. Together they let Wait for Wave release on a gamemode that
         # has no wave counter -- see WAIT_WAVE_NO_COUNTER_SETTLE.
         self._is_expedition_match = False
-        # One portal offer per match (see _take_portal_offer_if_found). The
-        # offer is taken with a middle-of-screen click, and the Victory screen
-        # that follows has clickable unit portraits right about there -- a
-        # stray click on those is what _clear_result_obtainment_modal exists
-        # to undo. So it fires once and then stops looking.
-        self._portal_offer_taken = False
         # Auto Fishing: when the last cast went out and the rod watch (see
         # _ensure_rod_out/_tick_fishing) -- all per match.
         self._reset_fishing_for_match()
@@ -1030,10 +1024,11 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
     def _take_portal_offer_if_found(self, hwnd) -> bool:
         """Take the middle portal when the post-round offer is up.
 
-        A won portal round puts up three new portals for ~20s BEFORE the
-        Victory screen renders, and picks one at random if the timer runs out
-        -- so this is checked from inside the match poll loop, not after the
-        result, where the offer is already gone.
+        A won portal round ends on three new portals, up for ~20s, and the
+        game picks one at random if the timer runs out -- so this is checked
+        from inside the match poll loop. Nothing follows the offer anymore:
+        no Victory screen, and the taken portal's round starts by itself. So
+        taking it is also how the poll loop learns the round was won.
 
         Deliberately the same shape as _dismiss_reward_card_if_found, which
         solves the identical problem for Expedition's "select an upgrade!"
@@ -2278,7 +2273,6 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._battle_started_at = time.time()
         self._battle_leave_requested = False
         self._is_expedition_match = task.get("mode") == "expedition"
-        self._portal_offer_taken = False   # fresh match, fresh offer
         self._reset_fishing_for_match()    # cast on the first tick, watch the rod afresh
         self._wave_region = EXPEDITION_WAVE_REGION if self._is_expedition_match else WAVE_REGION
         self._last_reward_card_at = 0.0
@@ -2665,18 +2659,19 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 self._battle_leave_requested = False
                 return "left"
 
-            # The three-portal offer opens BEFORE the Victory screen and takes
-            # itself away after ~20s, picking at random -- so it has to be
-            # caught here, mid-poll, not after the result (see
+            # The three-portal offer takes itself away after ~20s, picking at
+            # random -- so it has to be caught here, mid-poll (see
             # _take_portal_offer_if_found). Checked ahead of every other
             # screen scan: the reconnect and lobby checks below each sweep the
             # whole window at several sizes on a miss, and running them first
             # cost the only time-critical window in this loop most of a poll.
+            # Taking it IS the win: no Victory screen comes after it, the
+            # taken portal's round does (see
+            # PortalsOp._carry_on_after_portal_win).
+            if watch_portal_offer and self._take_portal_offer_if_found(hwnd):
+                self._log("[Macro] Portal round won -- the taken portal's round comes up next.")
+                return "win"
             clicked_something = False
-            if watch_portal_offer and not self._portal_offer_taken:
-                if self._take_portal_offer_if_found(hwnd):
-                    self._portal_offer_taken = True
-                    clicked_something = True
 
             # The Eclipse card choice sits in the same time-critical spot as
             # the portal offer above -- it is up for a limited window and the
@@ -2914,22 +2909,29 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # never still held into the result screen and beyond.
         self._release_quick_place_shift()
 
-        # The reward row streams its items in one at a time, so give it a beat
-        # to finish before either the screenshot or the relic check reads the
-        # screen (see RESULT_CAPTURE_DELAY) -- otherwise both can catch a
-        # half-populated row.
-        time.sleep(RESULT_CAPTURE_DELAY)
+        # A won portal round has no result screen: it ended on the
+        # three-portal offer, and the taken portal's round is already on its
+        # way (see PortalsOp._carry_on_after_portal_win). Nothing to wait for
+        # or capture -- only the reporting below is the same.
+        portal_won = result == "win" and task.get("mode") == "portals"
+        result_screenshot = None
+        if not portal_won:
+            # The reward row streams its items in one at a time, so give it a
+            # beat to finish before either the screenshot or the relic check
+            # reads the screen (see RESULT_CAPTURE_DELAY) -- otherwise both
+            # can catch a half-populated row.
+            time.sleep(RESULT_CAPTURE_DELAY)
 
-        # Only the CAPTURE (one screenshot) has to happen while the result
-        # screen is actually still up -- the run's result is now reported by
-        # SENDING that image to the webhook (plus a rendered win/loss card),
-        # not by OCRing the stats/reward panels off the screen, so there's
-        # just the one grab left here and the send itself runs on its own
-        # thread instead of holding up Repeat/Leave Stage. Only captured when
-        # a webhook is actually configured to receive it.
-        self._set_status(action=f"Capturing {label} screen...")
-        webhook_wants_shot = bool(webhook and webhook.get("enabled") and webhook.get("url"))
-        result_screenshot = self._capture_result_screenshot(hwnd) if webhook_wants_shot else None
+            # Only the CAPTURE (one screenshot) has to happen while the result
+            # screen is actually still up -- the run's result is now reported
+            # by SENDING that image to the webhook (plus a rendered win/loss
+            # card), not by OCRing the stats/reward panels off the screen, so
+            # there's just the one grab left here and the send itself runs on
+            # its own thread instead of holding up Repeat/Leave Stage. Only
+            # captured when a webhook is actually configured to receive it.
+            self._set_status(action=f"Capturing {label} screen...")
+            if webhook and webhook.get("enabled") and webhook.get("url"):
+                result_screenshot = self._capture_result_screenshot(hwnd)
 
         map_name = task.get("map") or "-"
         threading.Thread(
@@ -2938,6 +2940,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             daemon=True,
         ).start()
         self._log(f"[Macro] {label} ({duration}) -- reporting in the background.")
+
+        if portal_won:
+            # Same "matchmaking never repeats in place" rule as Repeat Stage
+            # below.
+            return self._carry_on_after_portal_win(
+                hwnd, stop_event, keep_playing=repeat and task.get("play_mode") != "matchmaking")
 
         # The cursor is moved to the same near-empty corner
         # _reset_unit_info_panel uses first, so a leftover hover
@@ -2989,17 +2997,6 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # same stage directly, skipping the lobby/gamemode/map/stage
             # picks entirely (see _run_task_setup, which only runs once per
             # task, not once per repeat).
-            if (result == "win" and task.get("mode") == "portals"):
-                # A portal's result screen has "Select Portal" instead of
-                # "Repeat Stage" -- pick the next portal using the task's
-                # Portal Name query and continue the repeats (see
-                # PortalsOp._select_portal_post_victory).
-                self._set_status(action="Victory -- selecting the next portal...")
-                if not self._select_portal_post_victory(
-                        hwnd, stop_event, task.get("map") or "summer"):
-                    return False
-                self._log("[Macro] Next portal selected -- continuing this task's repeats.")
-                return True
             if task.get("mode") == "tower":
                 repeat_image = "Next_Floor" if result == "win" else "Repeat_Floor"
                 repeat_label = repeat_image
@@ -5276,8 +5273,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         round.
 
         It is ALSO up during the normal end of a portal round, though: the
-        three-portal offer comes first and the result panel only after the
-        pick, so the button sits there for the whole ~20s offer. Clicking it
+        button sits there for the whole ~20s three-portal offer. Clicking it
         then was reported on every portal round, right before the pick. So
         the button has to have been up for GAME_RESULTS_GRACE without a
         break -- longer than the offer -- before it counts as a panel that
