@@ -35,6 +35,8 @@ from core.runner_constants import (
     BOUNTY_MYTHIC_DEFAULT_REROLLS,
     BOUNTY_MYTHIC_MIN_REROLLS,
     BOUNTY_MYTHIC_MAX_REROLLS,
+    WORLD_BOSS_ENTRY_IMAGES,
+    WORLD_BOSS_SET_OUT_SECONDS,
 )
 
 # Imported at module scope (not inside the darwin branches that use it) so the
@@ -298,6 +300,16 @@ def _current_challenge_window_start(now: float = None) -> float:
                           local.tm_wday, local.tm_yday, local.tm_isdst))
 
 
+def _current_world_boss_window_start(now: float = None) -> float:
+    """Epoch seconds for the start of the current hour -- the World Boss can
+    be played once per hour, entered in the first minutes after every full
+    hour (see WORLD_BOSS_SET_OUT_SECONDS). Counted in whole hours since the
+    epoch, i.e. full UTC hours, which are the full hours of every time zone
+    with a whole-hour offset."""
+    now = time.time() if now is None else now
+    return now - (now % 3600)
+
+
 def _time_until_challenge_ready(challenge: dict) -> str:
     """"Ready" if Daily Challenge or any enabled Regular slot is ready.
 
@@ -309,6 +321,10 @@ def _time_until_challenge_ready(challenge: dict) -> str:
     daily = challenge.get("daily") or {}
     daily_enabled = bool(daily.get("enabled"))
     if daily_enabled and daily.get("ready"):
+        return "Ready"
+    boss = challenge.get("world_boss") or {}
+    boss_enabled = bool(boss.get("enabled"))
+    if boss_enabled and boss.get("ready"):
         return "Ready"
 
     cap = challenge.get("cap", 0)
@@ -325,9 +341,9 @@ def _time_until_challenge_ready(challenge: dict) -> str:
             if info.get("ready"):
                 return "Ready"
 
-    if not any_enabled and not daily_enabled:
+    if not any_enabled and not daily_enabled and not boss_enabled:
         return "No stages enabled"
-    if not any_uncapped and not daily_enabled:
+    if not any_uncapped and not daily_enabled and not boss_enabled:
         return "All capped"
 
     now = time.time()
@@ -340,11 +356,21 @@ def _time_until_challenge_ready(challenge: dict) -> str:
         utc_now = datetime.fromtimestamp(now, timezone.utc)
         next_reset = (utc_now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         waits.append(max(1, int(next_reset.timestamp() - now)))
+    if boss_enabled:
+        waits.append(3600 - (now % 3600))
 
     remaining = min(waits)
     hours, remainder = divmod(int(remaining), 3600)
     mins, secs = divmod(remainder, 60)
     return f"{hours:02d}:{mins:02d}:{secs:02d}" if hours else f"{mins:02d}:{secs:02d}"
+
+
+def _any_challenge_enabled(challenge: dict) -> bool:
+    """Whether any part of Auto Challenge is switched on -- Regular, Daily or
+    the World Boss."""
+    return bool(challenge.get("enabled")
+                or (challenge.get("daily") or {}).get("enabled")
+                or (challenge.get("world_boss") or {}).get("enabled"))
 
 
 def _get_build_info() -> str:
@@ -610,9 +636,8 @@ class Api:
         data = cfg.load()
         try:
             challenge = self.get_challenge_settings()
-            challenge_enabled = challenge.get("enabled") or (challenge.get("daily") or {}).get("enabled")
             time_until_challenge = (_time_until_challenge_ready(challenge)
-                                     if challenge_enabled else "Disabled")
+                                     if _any_challenge_enabled(challenge) else "Disabled")
         except Exception:
             time_until_challenge = "Disabled"
         # run_history is newest-first (see _record_match_result) -- reversed to
@@ -818,7 +843,7 @@ class Api:
             "win_rate": round(wins / (wins + losses) * 100) if (wins + losses) else None,
             "time_until_challenge": (
                 _time_until_challenge_ready(challenge)
-                if challenge.get("enabled") or (challenge.get("daily") or {}).get("enabled")
+                if _any_challenge_enabled(challenge)
                 else "Disabled"
             ),
             "all_time_wins": all_time_wins,
@@ -1032,6 +1057,10 @@ class Api:
             # rotates through slots.
             "stages": {slot: {"enabled": True, "count": 0, "last_played_at": 0} for slot in CHALLENGE_STAGE_SLOTS},
             "maps": {m: {"macro": ""} for m in CHALLENGE_STORY_MAPS},
+            # World Boss (Events > World Boss > Ancient One): once per clock
+            # hour (see _current_world_boss_window_start), on one fixed map,
+            # so it has its own Macro Operation rather than a Story map's.
+            "world_boss": {"enabled": False, "macro": "", "last_played_at": 0},
             "last_reset_date": _current_challenge_reset_period(),
             "reset_schedule": CHALLENGE_RESET_SCHEDULE,
         }
@@ -1085,6 +1114,29 @@ class Api:
             merged_maps[m] = {"macro": saved_map.get("macro") or ""}
         merged["maps"] = merged_maps
         merged.update(self._challenge_macro_setup(merged))
+        saved_boss = saved.get("world_boss") or {}
+        try:
+            boss_played_at = float(saved_boss.get("last_played_at") or 0)
+        except (TypeError, ValueError):
+            boss_played_at = 0.0
+        boss = {
+            "enabled": bool(saved_boss.get("enabled", False)),
+            "macro": str(saved_boss.get("macro") or ""),
+            "last_played_at": boss_played_at,
+        }
+        # Computed, not stored, like a Regular slot's "ready". "done" once
+        # played this hour; otherwise "ready" only while Enter Encounter can
+        # still be reached in time, and "closed" for the rest of the hour.
+        boss_hour = _current_world_boss_window_start()
+        if boss_played_at >= boss_hour:
+            boss["state"] = "done"
+        elif time.time() - boss_hour < WORLD_BOSS_SET_OUT_SECONDS:
+            boss["state"] = "ready"
+        else:
+            boss["state"] = "closed"
+        boss["ready"] = boss["state"] == "ready"
+        boss["setup_problems"] = self._world_boss_setup(boss)
+        merged["world_boss"] = boss
 
         reset_period = _current_challenge_reset_period()
         merged["daily"]["ready"] = merged["daily"]["last_completed_period"] != reset_period
@@ -1116,6 +1168,13 @@ class Api:
             challenge = self.get_challenge_settings()
             challenge["daily"]["last_completed_period"] = _current_challenge_reset_period()
             challenge["daily"]["ready"] = False
+            cfg.update({"challenge": challenge})
+            return {"ok": True}
+        if stage == "world_boss":
+            # Once per hour, whatever the outcome -- rests it until the next
+            # full hour.
+            challenge = self.get_challenge_settings()
+            challenge["world_boss"]["last_played_at"] = time.time()
             cfg.update({"challenge": challenge})
             return {"ok": True}
         if stage not in CHALLENGE_STAGE_SLOTS:
@@ -1202,6 +1261,68 @@ class Api:
         cfg.update({"challenge": challenge})
         return {"ok": True}
 
+    @staticmethod
+    def _world_boss_macro_problem(macro: str) -> str:
+        """What is wrong with the World Boss's Macro Operation, or ""."""
+        macro = str(macro or "").strip()
+        if not macro:
+            return "assign a Macro Operation"
+        if not tpl.template_exists(macro) or not isinstance(tpl.load_template(macro).get("blocks"), dict):
+            return f'repair the Macro Operation "{macro}" (missing or saved by an old version)'
+        return ""
+
+    @staticmethod
+    def _world_boss_setup(boss: dict) -> list:
+        """What still keeps the World Boss from running, in words for the
+        Challenge screen: its Macro Operation, and the crops its menu is
+        clicked through (WORLD_BOSS_ENTRY_IMAGES -- they ship, but a folder
+        emptied by hand would leave the run clicking at nothing)."""
+        from core import vision
+        problems = [Api._world_boss_macro_problem(boss.get("macro"))]
+        problems += [f'crop "{name}" in the Image Manager'
+                     for name in WORLD_BOSS_ENTRY_IMAGES if not vision.template_variant_paths(name)]
+        return [problem for problem in problems if problem]
+
+    def set_world_boss_enabled(self, enabled: bool) -> dict:
+        challenge = self.get_challenge_settings()
+        problems = challenge["world_boss"]["setup_problems"]
+        if enabled and problems:
+            challenge["world_boss"]["enabled"] = False
+            cfg.update({"challenge": challenge})
+            self.push_log(f"[Macro] World Boss was not enabled -- first {'; '.join(problems)}.")
+            return {"ok": False, "reason": "world_boss_setup", "setup_problems": problems}
+        challenge["world_boss"]["enabled"] = bool(enabled)
+        cfg.update({"challenge": challenge})
+        return {"ok": True}
+
+    def set_world_boss_macro(self, macro: str) -> dict:
+        challenge = self.get_challenge_settings()
+        boss = challenge["world_boss"]
+        boss["macro"] = macro or ""
+        boss["setup_problems"] = self._world_boss_setup(boss)
+        # Same rule as a Story map losing its macro: the World Boss cannot
+        # run without one, so it is switched off rather than left to fail.
+        auto_disabled = bool(boss["enabled"] and self._world_boss_macro_problem(boss["macro"]))
+        if auto_disabled:
+            boss["enabled"] = False
+            self.push_log("[Macro] World Boss was disabled -- it no longer has a usable Macro Operation.")
+        cfg.update({"challenge": challenge})
+        return {"ok": True, "auto_disabled": auto_disabled}
+
+    def set_world_boss_count(self, count) -> dict:
+        """Manually mark this hour's World Boss as done (1) or not (0) --
+        for when it was already played by hand."""
+        try:
+            count = int(count)
+        except (TypeError, ValueError):
+            return {"ok": False, "reason": "bad_count"}
+        if count not in (0, 1):
+            return {"ok": False, "reason": "bad_count"}
+        challenge = self.get_challenge_settings()
+        challenge["world_boss"]["last_played_at"] = time.time() if count else 0
+        cfg.update({"challenge": challenge})
+        return {"ok": True}
+
     def set_challenge_stage_enabled(self, stage: str, enabled: bool) -> dict:
         if stage not in CHALLENGE_STAGE_SLOTS:
             return {"ok": False, "reason": "bad_stage"}
@@ -1268,6 +1389,7 @@ class Api:
             s["last_played_at"] = 0  # also clears cooldown -- every slot becomes available immediately
         challenge["daily"]["last_completed_period"] = ""
         challenge["daily"]["ready"] = True
+        challenge["world_boss"]["last_played_at"] = 0
         challenge["last_reset_date"] = _current_challenge_reset_period()
         challenge["reset_schedule"] = CHALLENGE_RESET_SCHEDULE
         cfg.update({"challenge": challenge})

@@ -635,6 +635,20 @@ CHALLENGE_STAGE_CLICK = {"1": (460, 277), "2": (460, 400), "3": (460, 533)}
 CHALLENGE_SCREEN_TIMEOUT = 10.0  # how long to wait for challenge_loaded after clicking the Challenge card
 CHALLENGE_MAP_DETECT_TIMEOUT = 20.0  # how long to poll for a recognizable map after teleporting in
 
+# World Boss (Resource > Auto Challenge): Events > World Boss "Ancient One" >
+# Enter Encounter > Select Stage > Start, playable once per clock hour. One
+# fixed map, so it runs its own Macro Operation rather than the Story Map
+# Setup. Clicked in this order after the lobby's Events button (nav_event);
+# a crop of each ships, and the run leaves the World Boss alone while either
+# folder has none.
+WORLD_BOSS_ENTRY_IMAGES = ("world_boss_ancient_one", "world_boss_enter_encounter")
+WORLD_BOSS_MAP = "Ancient One"
+# Enter Encounter only works in the first 10 minutes after the full hour. The
+# run sets out for it no later than :09, so the way there -- Leave Stage, the
+# lobby, the Events menu -- still lands inside those 10 minutes; an hour not
+# played by then counts as closed (see main.Api.get_challenge_settings).
+WORLD_BOSS_SET_OUT_SECONDS = 9 * 60
+
 EXPEDITION_DIFFICULTY_CLICK = (441, 524)
 EXPEDITION_DIFFICULTY_CLICK_DELAY = 0.1  # lets each increment register before the next click
 

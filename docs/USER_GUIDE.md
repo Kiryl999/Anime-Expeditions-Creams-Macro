@@ -247,6 +247,20 @@ detection falls back to reading the map label with OCR. The other maps keep
 matching normally -- a map with no crop is skipped, not fatal -- but the OCR
 path is the slower and less reliable of the two.
 
+The **World Boss** (Events > World Boss > Ancient One) sits in the same
+Challenge section. It can be played once per hour, and Enter Encounter only
+works in the first 10 minutes after the full hour. With it switched on, the
+macro steps out of its task at the first break between repeats from :00 to :09
+-- like a ready Challenge -- to play it, always Solo, then carries on. Past :09
+it leaves that hour alone; a round that is still running then means the hour is
+missed, so the longer a single round takes, the more hours get missed. It runs on one map, so it has its own Macro Operation
+instead of the Story map list, and it cannot be switched on until one is
+assigned. Its way there uses two crops that ship with the macro,
+`world_boss_ancient_one` (the World Boss entry in the Events menu) and
+`world_boss_enter_encounter` (the Enter Encounter button); if one does not match
+on your setup, add another crop under the same name in the Image Manager. One try per hour is all it gets: a win, a
+loss or an entry that fails all rest it until the next full hour.
+
 ## 6. Start and monitor a run
 
 1. Put the character in the lobby and close unexpected popups.

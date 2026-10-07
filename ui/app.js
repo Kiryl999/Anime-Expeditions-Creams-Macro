@@ -3461,9 +3461,33 @@ function renderChallengeScreen() {
   const dailyCount = document.getElementById('daily-challenge-count');
   if (dailyCount) dailyCount.value = daily.ready ? 0 : 1;
 
+  // World Boss: once per hour, its own Macro Operation (see main.Api's
+  // set_world_boss_* and core.runner_challenge._run_one_world_boss).
+  const boss = (s && s.world_boss) || { enabled: false, ready: true, state: 'ready', macro: '', setup_problems: [] };
+  const bossEnabledBtn = document.getElementById('toggle-world-boss-enabled');
+  if (bossEnabledBtn) bossEnabledBtn.classList.toggle('on', !!boss.enabled);
+  const bossStatus = document.getElementById('world-boss-status');
+  if (bossStatus) {
+    // Enter Encounter only works in the first minutes after the full hour --
+    // an hour not played by then is "closed", not done.
+    bossStatus.textContent = boss.state === 'done' ? 'Done this hour'
+      : boss.state === 'closed' ? 'Opens at :00' : 'Ready';
+    bossStatus.className = boss.state === 'ready' ? 'challenge-ready-chip' : 'challenge-cap-chip';
+  }
+  const bossCount = document.getElementById('world-boss-count');
+  if (bossCount) bossCount.value = boss.state === 'done' ? 1 : 0;
+  const bossWarning = document.getElementById('world-boss-setup-warning');
+  if (bossWarning) {
+    const problems = (s && boss.setup_problems) || [];
+    bossWarning.innerHTML = problems.length
+      ? `<strong>Setup required:</strong> before the World Boss can run, ${problems.map(escapeHtml).join('; ')}.`
+      : '';
+    bossWarning.style.display = problems.length ? '' : 'none';
+  }
+
   const summary = document.getElementById('resource-challenge-summary');
   if (summary) {
-    const enabled = !!(daily.enabled || (s && s.enabled));
+    const enabled = !!(daily.enabled || boss.enabled || (s && s.enabled));
     summary.textContent = enabled ? 'Enabled' : 'Disabled';
     summary.classList.toggle('active', enabled);
   }
@@ -3478,7 +3502,9 @@ function renderChallengeScreen() {
           return info.enabled ? `#${slot} ${info.count || 0}/${s.cap}` : `#${slot} Off`;
         }).join(', ')}`
       : 'Regular: Off';
-    details.textContent = `${dailyText} | ${regularText}`;
+    const bossText = !boss.enabled ? 'World Boss: Off'
+      : `World Boss: ${boss.state === 'done' ? 'Done' : boss.state === 'closed' ? 'Closed' : 'Ready'}`;
+    details.textContent = `${dailyText} | ${bossText} | ${regularText}`;
     details.title = details.textContent;
   }
   const enabledBtn = document.getElementById('toggle-challenge-enabled');
@@ -3490,6 +3516,11 @@ function renderChallengeScreen() {
   if (mmBtn) mmBtn.classList.toggle('active', playMode === 'matchmaking');
   const lastReset = document.getElementById('challenge-last-reset');
   if (lastReset) lastReset.textContent = (s && s.last_reset_date) || '-';
+
+  const macroOpts = (current) => `<option value="">No Macro</option>` +
+    taskTemplates.map(n => `<option value="${escapeHtml(n)}" ${n === current ? 'selected' : ''}>&#9654; ${escapeHtml(n)}</option>`).join('');
+  const bossMacro = document.getElementById('world-boss-macro');
+  if (bossMacro) bossMacro.innerHTML = macroOpts(boss.macro || '');
 
   const stageList = document.getElementById('challenge-stage-list');
   if (stageList) {
@@ -3532,8 +3563,6 @@ function renderChallengeScreen() {
   const mapList = document.getElementById('challenge-map-list');
   if (!mapList) return;
   if (!s) { mapList.innerHTML = '<div class="rh-empty">Couldn\'t load Challenge settings.</div>'; return; }
-  const macroOpts = (current) => `<option value="">No Macro</option>` +
-    taskTemplates.map(n => `<option value="${escapeHtml(n)}" ${n === current ? 'selected' : ''}>&#9654; ${escapeHtml(n)}</option>`).join('');
   mapList.innerHTML = CHALLENGE_STORY_MAPS.map(map => {
     const info = s.maps[map] || { macro: '' };
     return `
@@ -3591,6 +3620,27 @@ async function setDailyChallengeCount(value) {
   await refreshChallengeScreen();
 }
 
+// main.Api logs why when the World Boss cannot be switched on (no usable
+// Macro Operation, crops missing) -- the warning above its rows says it too.
+async function toggleWorldBossEnabled(btn) {
+  const isOn = !btn.classList.contains('on');
+  btn.classList.toggle('on', isOn);
+  bounceToggle(btn);
+  try { await pywebview.api.set_world_boss_enabled(isOn); } catch (e) {}
+  await refreshChallengeScreen();
+}
+
+async function setWorldBossCount(value) {
+  const count = Math.max(0, Math.min(1, parseInt(value, 10) || 0));
+  try { await pywebview.api.set_world_boss_count(count); } catch (e) {}
+  await refreshChallengeScreen();
+}
+
+async function setWorldBossMacro(value) {
+  try { await pywebview.api.set_world_boss_macro(value); } catch (e) {}
+  await refreshChallengeScreen();
+}
+
 async function toggleChallengeStage(stage, btn) {
   const isOn = !btn.classList.contains('on');
   btn.classList.toggle('on', isOn);
@@ -3622,7 +3672,7 @@ async function setChallengeStageCooldown(stage, onCooldown) {
 
 async function resetChallengeCounts() {
   try { await pywebview.api.reset_challenge_counts(); } catch (e) {}
-  addLog('[Challenge] Daily status, play counts, and cooldowns reset.');
+  addLog('[Challenge] Daily status, World Boss, play counts, and cooldowns reset.');
   await refreshChallengeScreen();
 }
 
@@ -6654,6 +6704,8 @@ const IMAGE_DESCRIPTIONS = {
   portal_card: "Any portal card in the portal picker's list -- best cropped from the portal art without its name, so one crop fits every portal. Looked for only after the Portal Name has been searched, so the search is what picks which portal.",
   portal_activate: "The portal picker's confirm button ('Activate Portal').",
   select_new_portal: "No longer used: a won portal round goes straight on into the next portal's round, with no Victory screen or 'Select Portal' button in between.",
+  world_boss_ancient_one: "The World Boss 'The Ancient One' entry in the Events menu (Resource > Auto Challenge > World Boss) -- clicked after the lobby's Events button.",
+  world_boss_enter_encounter: "The World Boss screen's 'Enter Encounter' button -- clicked after the Ancient One entry.",
   team: "The Team Loadout panel (opened with H).",
   teleportstuck: "Legacy normal-loading reference; no longer used as a disconnect signal.",
   toggle_false: "A Settings toggle in its OFF state.",

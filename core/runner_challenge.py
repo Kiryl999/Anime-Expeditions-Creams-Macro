@@ -1,5 +1,6 @@
 """Regular Challenge: readiness/rotation windows, the pre-queue pass, entering and
-playing the 3 stage slots.
+playing the 3 stage slots -- plus Daily Challenge and the hourly World Boss,
+which run in the same pass.
 
 Split out of core/runner.py mechanically -- a mixin providing part of
 MacroRunner's behavior (see core/runner.py, which composes the mixins).
@@ -129,6 +130,8 @@ class ChallengeOps:
         daily = challenge.get("daily") or {}
         if daily.get("enabled") and daily.get("ready"):
             return True
+        if ChallengeOps._world_boss_due(challenge):
+            return True
         if not challenge.get("enabled"):
             return False
         cap = challenge.get("cap", 0)
@@ -164,7 +167,8 @@ class ChallengeOps:
             self._log(f"[Macro] Couldn't read Challenge settings: {exc}")
             return
         daily = challenge.get("daily") or {}
-        if not challenge.get("enabled") and not daily.get("enabled"):
+        boss = challenge.get("world_boss") or {}
+        if not challenge.get("enabled") and not daily.get("enabled") and not boss.get("enabled"):
             return
 
         self._log("[Macro] Challenge is enabled -- running any ready stage(s) before the Task Queue...")
@@ -185,6 +189,24 @@ class ChallengeOps:
                 self._log("[Macro] Daily Challenge didn't complete cleanly -- recovering to the lobby.")
                 if not self._recover_failed_challenge(hwnd, stop_event):
                     return
+
+        if boss.get("enabled") and boss.get("ready"):
+            if boss.get("setup_problems"):
+                self._log(f"[Macro] World Boss is enabled but can't run yet -- "
+                          f"{'; '.join(boss['setup_problems'])}.")
+            else:
+                result = self._run_one_world_boss(hwnd, stop_event, boss, coords, default_walk_paths, webhook)
+                if self._checkpoint(stop_event):
+                    return
+                # The hour's one attempt, whatever came of it. A failed entry
+                # rests too: retried at every repeat boundary, it would pull
+                # the task out of its stage over and over until the hour ends.
+                self._mark_challenge_stage_played("world_boss")
+                if result is None:
+                    self._log("[Macro] World Boss didn't complete cleanly -- recovering to the lobby. "
+                              "Next try after the full hour.")
+                    if not self._recover_failed_challenge(hwnd, stop_event):
+                        return
 
         # Daily can be enabled independently of the rotating Regular slots.
         if not challenge.get("enabled"):
@@ -249,6 +271,86 @@ class ChallengeOps:
                     return
 
         self._log("[Macro] Challenge pass finished -- moving on to the Task Queue.")
+
+    @staticmethod
+    def _world_boss_due(challenge: dict) -> bool:
+        """Whether the World Boss wants a run now: switched on, not played yet
+        this hour, and nothing missing it needs to get in (its crops and its
+        Macro Operation -- see main.Api._world_boss_setup)."""
+        boss = challenge.get("world_boss") or {}
+        return bool(boss.get("enabled") and boss.get("ready") and not boss.get("setup_problems"))
+
+    def _run_one_world_boss(self, hwnd, stop_event: threading.Event, boss: dict, coords: dict,
+                            default_walk_paths: dict, webhook: dict) -> str:
+        """Enter the World Boss and play it with its own Macro Operation --
+        the usual Pre Start, Start Game and Victory/Defeat, ending on Leave
+        Stage like every Challenge. Always Solo: the encounter screen goes
+        straight to Select Stage and Start.
+
+        Returns "win", "loss", "left" (a Leave at Minute block already took
+        the run back to the lobby), or None when it never got in, the battle
+        failed or the run was stopped.
+        """
+        macro = str(boss.get("macro") or "")
+        progress_task = {"mode": "world_boss", "map": WORLD_BOSS_MAP, "stage": "World Boss", "play_mode": "solo"}
+        self._send_progress_webhook(
+            webhook,
+            progress_task,
+            "World Boss Started",
+            f"Starting the World Boss ({WORLD_BOSS_MAP}).",
+            0x5865F2,
+            current_action="World Boss -- entering (solo)",
+            next_phase="Pre Start, then the battle",
+        )
+        self._log(f'[Macro] World Boss: entering {WORLD_BOSS_MAP} -- running "{macro}".')
+        self._set_status(current_task="World Boss", map=WORLD_BOSS_MAP, action="Entering the World Boss...",
+                         mode="world_boss", stage="-", difficulty="-", play_mode="solo", macro=macro or "-")
+        result = None
+        try:
+            if not self._enter_world_boss(hwnd, stop_event, coords, webhook):
+                return None
+            if self._checkpoint(stop_event):
+                return None
+            task = {
+                "mode": "world_boss", "map": WORLD_BOSS_MAP, "macro": macro, "play_mode": "solo",
+                "repeat": 1, "team": "", "equipment": "include",
+            }
+            battle_started = time.time()
+            outcome = self._play_one_match(hwnd, stop_event, task, default_walk_paths, first_repeat=True,
+                                           webhook=webhook)
+            if outcome is None:
+                return None
+            if outcome == "left":
+                # Left to the lobby mid-battle -- no result screen to handle.
+                result = outcome
+                return result
+            duration = self._format_duration(time.time() - battle_started)
+            if not self._handle_match_result(hwnd, stop_event, task, outcome, duration, webhook, repeat=False):
+                return None
+            result = None if self._checkpoint(stop_event) else outcome
+            return result
+        finally:
+            self._send_challenge_progress_finished(
+                webhook, progress_task, "World Boss", "solo", result, stop_event)
+
+    def _enter_world_boss(self, hwnd, stop_event: threading.Event, coords: dict, webhook: dict) -> bool:
+        """Lobby > Events > World Boss "Ancient One" > Enter Encounter, then
+        the shared Select Stage + Start tail through the teleport. Backs out
+        to the lobby when a screen never shows up."""
+        if not self._ensure_lobby(hwnd, stop_event):
+            return False
+        if self._checkpoint(stop_event):
+            return False
+        for name in ("nav_event",) + WORLD_BOSS_ENTRY_IMAGES:
+            self._set_status(action=f'Clicking "{name}"...')
+            if self._click_found_image(hwnd, name, EVENT_SCREEN_TIMEOUT, stop_event) is None:
+                self._spam_back_until_gone(hwnd, stop_event)
+                return False
+            if self._checkpoint(stop_event):
+                return False
+            time.sleep(SETTLE_DELAY)
+        return self._enter_selected_stage(
+            hwnd, stop_event, {"mode": "world_boss", "play_mode": "solo"}, "world_boss", coords, webhook)
 
     def _recover_failed_challenge(self, hwnd, stop_event: threading.Event) -> bool:
         """Prefer the direct stage exit, then fall back to generic recovery."""
@@ -343,6 +445,8 @@ class ChallengeOps:
             status, color = "Defeat", 0xE05A6D
         elif result == "unavailable":
             status, color = "Unavailable", 0xE8935A
+        elif result == "left":
+            status, color = "Left", 0xE8935A
         elif stop_event.is_set():
             status, color = "Stopped", 0xE8935A
         else:

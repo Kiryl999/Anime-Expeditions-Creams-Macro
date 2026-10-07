@@ -6,6 +6,7 @@ import pytest
 from core import ocr
 from core import vision
 from core import ocr_windows
+from core import runner_challenge
 from core.runner_challenge import ChallengeOps
 from core.runner_constants import CHALLENGE_STORY_MAPS
 
@@ -239,3 +240,199 @@ def test_challenge_map_ocr_uses_fixed_fallback_when_hud_absent(monkeypatch):
 
     assert ChallengeOps._detect_challenge_map_ocr(probe, 123) == "Rose Kingdom"
     assert seen_shapes[0] == (10 * 8, 81 * 8)
+
+
+# ---------------------------------------------------------------------------
+# World Boss: Events > World Boss > Ancient One, once per clock hour
+# ---------------------------------------------------------------------------
+
+def _boss_settings(**boss):
+    return {
+        "enabled": False, "play_mode": "solo", "cap": 0,
+        "daily": {"enabled": False, "ready": False},
+        "world_boss": {"enabled": True, "ready": True, "macro": "Boss Farm", "setup_problems": [], **boss},
+    }
+
+
+def test_a_due_world_boss_counts_as_a_ready_challenge():
+    probe = ChallengeProbe()
+    probe._get_challenge_settings = lambda: _boss_settings()
+
+    assert ChallengeOps._challenge_has_ready_stage(probe) is True
+
+
+@pytest.mark.parametrize("boss", [
+    {"enabled": False},
+    {"ready": False},
+    # Without its crops or macro it cannot get in -- pulling the task out of
+    # its stage for it at every repeat would only waste the run.
+    {"setup_problems": ["assign a Macro Operation"]},
+])
+def test_a_world_boss_that_cannot_run_leaves_the_task_alone(boss):
+    probe = ChallengeProbe()
+    probe._get_challenge_settings = lambda: _boss_settings(**boss)
+
+    assert ChallengeOps._challenge_has_ready_stage(probe) is False
+
+
+def _pass_probe(settings, outcome):
+    probe = ChallengeProbe()
+    probe.order = []
+    probe.marked = []
+    probe.recovered = []
+    probe._get_challenge_settings = lambda: settings
+    probe._checkpoint = lambda stop: stop.is_set()
+    probe._run_one_daily_challenge = lambda *_a: probe.order.append("daily") or "win"
+    probe._run_one_world_boss = lambda *_a: probe.order.append("world_boss") or outcome
+    probe._run_one_challenge_stage = lambda _hwnd, _stop, slot, *_a: probe.order.append(slot) or "win"
+    probe._mark_challenge_stage_played = lambda stage, *_a: probe.marked.append(stage)
+    probe._recover_failed_challenge = lambda *_a: probe.recovered.append(True) or True
+    return probe
+
+
+def test_the_world_boss_runs_after_daily_and_before_the_regular_slots():
+    settings = {
+        **_boss_settings(),
+        "enabled": True,
+        "daily": {"enabled": True, "ready": True},
+        "stages": {"1": {"enabled": True, "ready": True, "count": 0}},
+    }
+    probe = _pass_probe(settings, "win")
+
+    ChallengeOps._run_challenges(probe, 123, threading.Event(), {}, {}, {})
+
+    assert probe.order == ["daily", "world_boss", "1"]
+    assert probe.marked == ["daily", "world_boss", "1"]
+
+
+@pytest.mark.parametrize("outcome", ["win", "loss", "left", None])
+def test_the_world_boss_rests_until_the_next_hour_whatever_came_of_it(outcome):
+    """One try an hour: a failed entry is not retried at every repeat
+    boundary either -- that would pull the task out of its stage each time."""
+    probe = _pass_probe(_boss_settings(), outcome)
+
+    ChallengeOps._run_challenges(probe, 123, threading.Event(), {}, {}, {})
+
+    assert probe.marked == ["world_boss"]
+    assert probe.recovered == ([True] if outcome is None else [])
+
+
+def test_a_world_boss_missing_its_setup_is_skipped_with_the_reason():
+    problem = 'crop "world_boss_ancient_one" in the Image Manager'
+    probe = _pass_probe(_boss_settings(setup_problems=[problem]), "win")
+
+    ChallengeOps._run_challenges(probe, 123, threading.Event(), {}, {}, {})
+
+    assert probe.order == []
+    assert probe.marked == []
+    assert any(problem in line for line in probe.logs)
+
+
+def test_a_stop_during_the_world_boss_does_not_use_up_its_hour():
+    stop = threading.Event()
+    probe = _pass_probe(_boss_settings(), None)
+    probe._run_one_world_boss = lambda *_a: stop.set() or None
+
+    ChallengeOps._run_challenges(probe, 123, stop, {}, {}, {})
+
+    assert probe.marked == []
+
+
+class WorldBossEntryProbe(ChallengeProbe):
+    def __init__(self, missing=None):
+        super().__init__()
+        self.clicked = []
+        self.backs = 0
+        self.entered = []
+        self.missing = missing
+        self._ensure_lobby = lambda *_args: True
+        self._set_status = lambda **_kwargs: None
+        self._checkpoint = lambda _stop: False
+
+    def _click_found_image(self, _hwnd, name, _timeout, _stop, *args, **kwargs):
+        self.clicked.append(name)
+        return None if name == self.missing else {"score": 0.99}
+
+    def _spam_back_until_gone(self, *_args):
+        self.backs += 1
+
+    def _enter_selected_stage(self, _hwnd, _stop, task, mode, _coords, _webhook):
+        self.entered.append((task, mode))
+        return True
+
+
+def test_the_world_boss_is_entered_through_the_events_menu(monkeypatch):
+    monkeypatch.setattr(runner_challenge.time, "sleep", lambda _s: None)
+    probe = WorldBossEntryProbe()
+
+    assert ChallengeOps._enter_world_boss(probe, 123, threading.Event(), {}, {}) is True
+    assert probe.clicked == ["nav_event", "world_boss_ancient_one", "world_boss_enter_encounter"]
+    # Then Select Stage and Start, the same Solo tail every stage uses.
+    assert probe.entered == [({"mode": "world_boss", "play_mode": "solo"}, "world_boss")]
+
+
+def test_a_world_boss_screen_that_never_shows_backs_out_to_the_lobby(monkeypatch):
+    monkeypatch.setattr(runner_challenge.time, "sleep", lambda _s: None)
+    probe = WorldBossEntryProbe(missing="world_boss_enter_encounter")
+
+    assert ChallengeOps._enter_world_boss(probe, 123, threading.Event(), {}, {}) is False
+    assert probe.backs == 1
+    assert probe.entered == []
+
+
+class WorldBossBattleProbe(ChallengeProbe):
+    def __init__(self, outcome):
+        super().__init__()
+        self.played = []
+        self.handled = []
+        self.finished = []
+        self._outcome = outcome
+        self._set_status = lambda **_kwargs: None
+        self._checkpoint = lambda _stop: False
+        self._enter_world_boss = lambda *_args: True
+        self._send_progress_webhook = lambda *_args, **_kwargs: None
+        self._send_challenge_progress_finished = lambda *args: self.finished.append(args[4])
+        self._format_duration = lambda _seconds: "1m"
+
+    def _play_one_match(self, _hwnd, _stop, task, _walks, first_repeat=True, webhook=None):
+        self.played.append((task, first_repeat))
+        return self._outcome
+
+    def _handle_match_result(self, _hwnd, _stop, _task, result, _duration, _webhook, repeat):
+        self.handled.append((result, repeat))
+        return True
+
+
+def test_the_world_boss_is_played_with_its_own_macro_and_left_afterwards():
+    probe = WorldBossBattleProbe("win")
+
+    result = ChallengeOps._run_one_world_boss(
+        probe, 123, threading.Event(), {"macro": "Boss Farm"}, {}, {}, {})
+
+    assert result == "win"
+    task, first_repeat = probe.played[0]
+    assert (task["mode"], task["map"], task["macro"], task["play_mode"]) == (
+        "world_boss", "Ancient One", "Boss Farm", "solo")
+    assert first_repeat is True, "a fresh entry: camera, Team Loadout and Once blocks all run"
+    assert probe.handled == [("win", False)], "Leave Stage, back to the lobby"
+    assert probe.finished == ["win"]
+
+
+def test_leaving_the_world_boss_early_skips_the_result_screen():
+    probe = WorldBossBattleProbe("left")
+
+    result = ChallengeOps._run_one_world_boss(
+        probe, 123, threading.Event(), {"macro": "Boss Farm"}, {}, {}, {})
+
+    assert result == "left"
+    assert probe.handled == []
+
+
+def test_both_world_boss_crops_ship():
+    from pathlib import Path
+
+    from core.runner_constants import WORLD_BOSS_ENTRY_IMAGES
+
+    root = Path(__file__).resolve().parent.parent / "Assets" / "ui"
+    for name in WORLD_BOSS_ENTRY_IMAGES:
+        assert (root / name / f"{name}.png").is_file(), f"{name} has no crop to find the World Boss by"

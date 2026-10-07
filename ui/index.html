@@ -803,7 +803,7 @@
           <div class="setting-row" style="padding: 10px 0;">
             <div>
               <div class="setting-label">Reset Challenge Status Now</div>
-              <div class="setting-desc">UTC game day: <span id="challenge-last-reset">-</span>. Clears Daily completion, counts, and cooldowns.</div>
+              <div class="setting-desc">UTC game day: <span id="challenge-last-reset">-</span>. Clears Daily completion, the World Boss hour, counts, and cooldowns.</div>
             </div>
             <button class="task-toolbar-btn danger" onclick="resetChallengeCounts()">Reset</button>
           </div>
@@ -821,6 +821,31 @@
               </div>
               <button id="toggle-daily-challenge-enabled" class="toggle-switch" onclick="toggleDailyChallengeEnabled(this)"></button>
             </div>
+          </div>
+
+          <div id="world-boss-setup-warning" class="resource-setup-warning" style="display: none;"></div>
+
+          <div class="setting-row" style="padding: 10px 0;">
+            <div>
+              <div class="setting-label">Enable World Boss <span id="world-boss-status" class="challenge-ready-chip">Ready</span></div>
+              <div class="setting-desc">Events &gt; World Boss &gt; Ancient One, once per hour. It can only be entered in the first 10 minutes after the full hour, so the macro goes for it between :00 and :09 and leaves the rest of the hour alone. Runs after Daily Challenge, always Solo.</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="challenge-count-group" title="Set to 1 if this hour's World Boss was already done manually">
+                <input id="world-boss-count" type="number" class="block-input" min="0" max="1" style="width: 52px;" value="0"
+                       onchange="setWorldBossCount(this.value)">
+                <span class="challenge-count-sep">/ 1</span>
+              </div>
+              <button id="toggle-world-boss-enabled" class="toggle-switch" onclick="toggleWorldBossEnabled(this)"></button>
+            </div>
+          </div>
+
+          <div class="setting-row" style="padding: 10px 0;">
+            <div>
+              <div class="setting-label">World Boss Macro Operation</div>
+              <div class="setting-desc">Runs on the Ancient One map. The macro finds its way there with the crops <b>world_boss_ancient_one</b> (its entry in the Events menu) and <b>world_boss_enter_encounter</b> -- if one does not match your setup, add another crop under the same name via Settings &gt; General &gt; Image Manager.</div>
+            </div>
+            <select id="world-boss-macro" class="task-select" style="width: 170px; flex-shrink: 0;" onchange="setWorldBossMacro(this.value)"></select>
           </div>
 
           <div class="setting-row" style="padding: 10px 0;">

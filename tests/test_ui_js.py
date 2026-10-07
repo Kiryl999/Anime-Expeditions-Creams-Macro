@@ -1671,8 +1671,65 @@ def test_challenge_card_summarizes_daily_and_regular_state(tmp_path):
     out = run_js(body, tmp_path)
     assert out == {
         "summary": "Enabled",
-        "details": "Daily: Complete | Regular: #1 0/10, #2 1/10, #3 10/10",
+        "details": "Daily: Complete | World Boss: Off | Regular: #1 0/10, #2 1/10, #3 10/10",
     }
+
+
+@pytest.mark.parametrize("state, chip, count, short", [
+    ("ready", "Ready", 0, "Ready"),
+    ("done", "Done this hour", 1, "Done"),
+    # Not played in the 10 minutes the encounter can be entered -- missed,
+    # not done.
+    ("closed", "Opens at :00", 0, "Closed"),
+])
+def test_the_world_boss_row_shows_its_hour_its_macro_and_what_is_missing(state, chip, count, short, tmp_path):
+    body = """
+    global.challengeState = {
+      enabled: false, cap: 10, play_mode: 'solo', last_reset_date: '2026-10-07',
+      daily: { enabled: false, ready: true },
+      world_boss: {
+        enabled: true, ready: STATE === 'ready', state: STATE, macro: 'Boss Farm',
+        setup_problems: ['crop "world_boss_enter_encounter" in the Image Manager']
+      },
+      stages: {}, maps: {}
+    };
+    global.CHALLENGE_STAGE_SLOTS = ['1', '2', '3'];
+    global.taskTemplates = ['Boss Farm', 'Story Farm'];
+    global.escapeHtml = value => String(value);
+    const el = () => ({ textContent: '', title: '', className: '', value: '', innerHTML: '',
+                        style: { display: 'none' }, classList: { on: null, toggle(_c, v) { this.on = v; } } });
+    const mockElements = {
+      'resource-challenge-summary': el(), 'resource-challenge-details': el(),
+      'toggle-world-boss-enabled': el(), 'world-boss-status': el(), 'world-boss-count': el(),
+      'world-boss-setup-warning': el(), 'world-boss-macro': el()
+    };
+    global.document = { getElementById: id => mockElements[id] || null };
+
+    eval(extract('renderStoryMapSetupWarning'));
+    eval(extract('renderChallengeScreen'));
+    renderChallengeScreen();
+
+    const macro = mockElements['world-boss-macro'].innerHTML;
+    console.log(JSON.stringify({
+      toggleOn: mockElements['toggle-world-boss-enabled'].classList.on,
+      status: mockElements['world-boss-status'].textContent,
+      count: mockElements['world-boss-count'].value,
+      warningShown: mockElements['world-boss-setup-warning'].style.display === '',
+      warning: mockElements['world-boss-setup-warning'].innerHTML,
+      bossSelected: macro.includes('value="Boss Farm" selected'),
+      summary: mockElements['resource-challenge-summary'].textContent,
+      details: mockElements['resource-challenge-details'].textContent
+    }));
+    """
+    out = run_js(body.replace("STATE", json.dumps(state)), tmp_path)
+    assert out["toggleOn"] is True
+    assert out["status"] == chip
+    assert out["count"] == count
+    assert out["warningShown"] is True
+    assert "world_boss_enter_encounter" in out["warning"]
+    assert out["bossSelected"] is True
+    assert out["summary"] == "Enabled", "the World Boss alone switches Auto Challenge on"
+    assert out["details"] == f"Daily: Off | World Boss: {short} | Regular: Off"
 
 
 def test_story_map_setup_warning_lists_missing_and_invalid_maps(tmp_path):
