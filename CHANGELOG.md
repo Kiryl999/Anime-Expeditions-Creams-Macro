@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.18] - 2026-10-07
+
+### New
+- **World Boss**: the hourly World Boss from the game's latest update can be played automatically. Switch it on under **Resource > Auto Challenge**, next to Daily and Regular Challenge, and pick the Macro Operation to run on its map. The macro goes Events > World Boss > The Ancient One > Enter Encounter > Select Stage > Start, plays it with that operation -- always Solo -- and goes back to what it was doing. Enter Encounter only works in the first 10 minutes after the full hour, so the macro goes for it at the first break between repeats (or tasks) from :00 to :09 -- after Daily Challenge, before Regular Challenge -- and leaves the rest of the hour alone; a single round still running past :09 means that hour is missed. One try per hour: a win, a loss or a failed entry all rest it until the next full hour, and the **0 / 1** field next to the switch marks an hour you played by hand. The crops it finds its way by are included (`world_boss_ancient_one` and `world_boss_enter_encounter`); if one does not match on your setup, add another crop under the same name via Settings > General > Image Manager. Until a Macro Operation is assigned, the World Boss can't be switched on, and the Challenge screen says what is missing.
+
 ## [0.21.17.2] - 2026-10-07
 
 ### New
