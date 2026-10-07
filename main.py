@@ -27,6 +27,7 @@ from core.mouse import Mouse
 from core.keyboard import Keyboard
 from core.logger import Logger
 from core.runner import MacroRunner
+from core.camera import CameraTiming
 from core import updater
 from core import auto_shop
 from core.auto_shop import current_auto_shop_period
@@ -872,6 +873,9 @@ class Api:
             "action_delay_ms": data.get("action_delay_ms", 0),
             "expedition_color_buttons": data.get("expedition_color_buttons", True),
             "expedition_camera_o_ms": data.get("expedition_camera_o_ms", 100),
+            # Settings > Debug > Camera Setup Timing -- camera_zoom_in_ms and
+            # its three siblings, defaults filled in (see core.camera).
+            **CameraTiming.from_settings(data).as_settings(),
             # False until the welcome checklist's "Get Started" -- the UI
             # shows it exactly once per install (see app.js showOnboarding).
             "onboarding_done": data.get("onboarding_done", False),
@@ -2129,7 +2133,8 @@ class Api:
             expedition_camera_o_ms=data.get("expedition_camera_o_ms", 100),
             loose_team_ocr_match=data.get("loose_team_ocr_match", False),
             memory_refresh_enabled=data.get("memory_refresh_enabled", False),
-            memory_refresh_hours=data.get("memory_refresh_hours", 4.0))
+            memory_refresh_hours=data.get("memory_refresh_hours", 4.0),
+            camera_timing=CameraTiming.from_settings(data))
 
     def stop_macro(self) -> dict:
         # An explicit Stop cancels any pending auto-reopen/auto-restart -- if
@@ -3742,11 +3747,12 @@ class Api:
         # processes mouse/keyboard input while it's the foreground window.
         wm.show_window(hwnd)
         wm.activate_window(hwnd)
+        timing = CameraTiming.from_settings(cfg.load())
 
         def run():
             from core import camera
             try:
-                camera.run_camera_setup(self.mouse, self.keyboard, hwnd)
+                camera.run_camera_setup(self.mouse, self.keyboard, hwnd, timing=timing)
                 self.push_log("[Debug] Camera setup done -- tilted down, zoomed out.")
             except Exception as exc:
                 self.push_log(f"[Debug] Camera setup failed: {exc}")
@@ -3757,8 +3763,8 @@ class Api:
     def debug_camera_setup_2(self, hold_ms) -> dict:
         # Settings > Debug > "Camera Setup 2": same tilt-then-zoom
         # sequence as Camera Setup, but with a caller-supplied O-hold
-        # duration instead of the fixed 2s -- for testing how long the
-        # zoom-out actually needs.
+        # duration for the full zoom-out instead of the Full Zoom Out
+        # setting -- for testing how long the zoom-out actually needs.
         hwnd = self.game_hwnd
         if not hwnd or not wm.is_window(hwnd):
             return {"ok": False, "reason": "no_roblox"}
@@ -3769,11 +3775,12 @@ class Api:
 
         wm.show_window(hwnd)
         wm.activate_window(hwnd)
+        timing = CameraTiming.from_settings(cfg.load())
 
         def run():
             from core import camera
             try:
-                camera.run_camera_setup(self.mouse, self.keyboard, hwnd, hold_ms=hold_ms)
+                camera.run_camera_setup(self.mouse, self.keyboard, hwnd, hold_ms=hold_ms, timing=timing)
                 self.push_log(f"[Debug] Camera setup 2 done ({hold_ms:.0f}ms hold).")
             except Exception as exc:
                 self.push_log(f"[Debug] Camera setup 2 failed: {exc}")
@@ -3798,11 +3805,12 @@ class Api:
 
         wm.show_window(hwnd)
         wm.activate_window(hwnd)
+        timing = CameraTiming.from_settings(cfg.load())
 
         def run():
             from core import camera
             try:
-                camera.run_camera_rotate_hold(self.mouse, self.keyboard, hwnd, hold_ms=hold_ms)
+                camera.run_camera_rotate_hold(self.mouse, self.keyboard, hwnd, hold_ms=hold_ms, timing=timing)
                 self.push_log(f"[Debug] Camera setup 3 done (tilted down, {hold_ms:.0f}ms Left-arrow hold).")
             except Exception as exc:
                 self.push_log(f"[Debug] Camera setup 3 failed: {exc}")

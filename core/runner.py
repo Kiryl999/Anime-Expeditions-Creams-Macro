@@ -195,6 +195,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._exp_intercept_since = 0.0
         self._exp_clock_marked_at = 0.0
         self._expedition_camera_o_ms = 100.0
+        # How long each step of the camera setup takes (Settings > Debug >
+        # Camera Setup Timing). Read from settings at every start(), like the
+        # Expedition zoom above.
+        self._camera_timing = camera.CameraTiming()
         # Wrapped to remember the most recent action text locally: the
         # stop path (_checkpoint) reports "Stopped. (was: <action>)" so a
         # user stopping a visibly-hung run gets told what it was stuck on
@@ -391,7 +395,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
               webhook: dict = None, expedition_color_buttons: bool = True,
               expedition_camera_o_ms: float = 100, loose_team_ocr_match: bool = False,
               memory_refresh_enabled: bool = False,
-              memory_refresh_hours: float = MEMORY_REFRESH_DEFAULT_HOURS) -> dict:
+              memory_refresh_hours: float = MEMORY_REFRESH_DEFAULT_HOURS,
+              camera_timing: "camera.CameraTiming" = None) -> dict:
         if self.is_running():
             return {"ok": False, "reason": "already_running"}
         self._stop_event = threading.Event()
@@ -405,6 +410,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             self._expedition_camera_o_ms = max(0.0, float(expedition_camera_o_ms))
         except (TypeError, ValueError):
             self._expedition_camera_o_ms = 100.0
+        self._camera_timing = camera_timing or camera.CameraTiming()
         self._memory_refresh_enabled = bool(memory_refresh_enabled)
         try:
             refresh_hours = float(memory_refresh_hours)
@@ -3280,9 +3286,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             try:
                 if task.get("mode") == "expedition":
                     camera.run_camera_rotate_hold(self._mouse, self._keyboard, hwnd, hold_ms=730,
-                                                  o_tap_ms=self._expedition_camera_o_ms)
+                                                  o_tap_ms=self._expedition_camera_o_ms,
+                                                  timing=self._camera_timing)
                 else:
-                    camera.run_camera_setup(self._mouse, self._keyboard, hwnd)
+                    camera.run_camera_setup(self._mouse, self._keyboard, hwnd, timing=self._camera_timing)
                 self._log("[Macro] Camera setup done.")
             except Exception as exc:
                 self._log(f"[Macro] Camera setup failed: {exc}")

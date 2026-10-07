@@ -1,6 +1,8 @@
 import threading
 from unittest.mock import MagicMock
 
+import pytest
+
 from core import runner as runner_module
 from core.runner import MacroRunner
 
@@ -126,3 +128,28 @@ def test_only_an_explicit_false_switches_the_camera_off():
         assert runner._camera_setup_enabled({}) is True, "a task with no macro keeps the camera"
     finally:
         tpl.load_template = original
+
+
+# Settings > Debug > Camera Setup Timing: a slow setup (Remote Desktop) needs
+# longer holds, and whatever was set has to reach every camera the run uses.
+
+_SLOW = runner_module.camera.CameraTiming(zoom_in_ms=1500, full_zoom_out_ms=3000)
+
+
+def test_a_new_runner_uses_the_default_timing():
+    assert _runner()._camera_timing == runner_module.camera.CameraTiming()
+
+
+@pytest.mark.parametrize("mode, sequence", [("story", "run_camera_setup"),
+                                            ("expedition", "run_camera_rotate_hold")])
+def test_the_set_timing_reaches_the_pre_start_camera(monkeypatch, mode, sequence):
+    used = []
+    monkeypatch.setattr(runner_module.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(runner_module.camera, sequence, lambda *_a, **kw: used.append(kw.get("timing")))
+
+    runner = _runner()
+    runner._interruptible_sleep = lambda *_a, **_kw: None
+    runner._camera_timing = _SLOW
+
+    assert runner._run_prestart(123, threading.Event(), {"mode": mode}, {}) is True
+    assert used == [_SLOW]

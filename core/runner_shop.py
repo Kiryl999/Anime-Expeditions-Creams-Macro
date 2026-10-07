@@ -1101,7 +1101,7 @@ class ShopOps:
             self._log("[Shop] Couldn't confirm Roblox focus before opening Gold Shop.")
             return False
         time.sleep(0.3)
-        camera.tilt_camera_top_down(self._mouse, self._keyboard, hwnd)
+        camera.tilt_camera_top_down(self._mouse, self._keyboard, hwnd, self._camera_timing)
         time.sleep(0.5)
 
         # Retry pressing E and locating shop_tab up to 3 times

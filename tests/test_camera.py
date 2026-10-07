@@ -114,7 +114,7 @@ def test_a_failing_look_down_still_zooms_back_out_and_frees_the_cursor(timeline)
         camera.tilt_camera_top_down(FakeMouse(timeline, fail_on_look=3), FakeKeyboard(timeline), hwnd=123)
 
     assert ("release",) in timeline
-    assert _holds(timeline, O) == [camera.ZOOM_OUT_HOLD]
+    assert _holds(timeline, O) == [camera.CameraTiming().zoom_out_ms / 1000]
     assert timeline[-1] == ("key_up", O)
 
 
@@ -162,3 +162,71 @@ def test_expedition_rotate_without_an_o_tap(timeline):
     camera.run_camera_rotate_hold(FakeMouse(timeline), FakeKeyboard(timeline), hwnd=123, hold_ms=730)
 
     assert [e[1] for e in timeline if e[0] == "key_down"] == [I, O, keys.VK_LEFT]
+
+
+# ---------------------------------------------------------------------------
+# Settings > Debug > Camera Setup Timing
+# ---------------------------------------------------------------------------
+# Roblox zooms a step per frame, so a setup at low FPS (Remote Desktop) needs
+# longer holds than the defaults -- every step's time can be set.
+
+_SLOW = camera.CameraTiming(zoom_in_ms=1500, look_down_ms=800, zoom_out_ms=700, full_zoom_out_ms=3000)
+
+
+def _look_time(events):
+    looks = _looks(events)
+    return sum(e[1] for e in events[looks[0]:looks[-1] + 2] if e[0] == "sleep")
+
+
+def test_the_default_timing_is_the_tuned_sequence():
+    assert camera.CameraTiming() == camera.CameraTiming(
+        zoom_in_ms=500, look_down_ms=500, zoom_out_ms=500, full_zoom_out_ms=2000)
+
+
+def test_every_step_takes_its_set_time(timeline):
+    camera.run_camera_setup(FakeMouse(timeline), FakeKeyboard(timeline), hwnd=123, timing=_SLOW)
+
+    assert _holds(timeline, I) == [1.5]
+    assert _look_time(timeline) == pytest.approx(0.8)
+    assert _holds(timeline, O) == [0.7, 3.0]
+
+
+def test_camera_setup_2_tries_its_own_full_zoom_out(timeline):
+    camera.run_camera_setup(FakeMouse(timeline), FakeKeyboard(timeline), hwnd=123, hold_ms=4000, timing=_SLOW)
+
+    assert _holds(timeline, O) == [0.7, 4.0]
+
+
+def test_the_expedition_camera_tilts_with_the_set_times_too(timeline):
+    camera.run_camera_rotate_hold(FakeMouse(timeline), FakeKeyboard(timeline), hwnd=123,
+                                  hold_ms=730, o_tap_ms=100, timing=_SLOW)
+
+    assert _holds(timeline, I) == [1.5]
+    assert _holds(timeline, O) == [0.7, pytest.approx(0.1)], "no full zoom-out on Expedition"
+
+
+def test_settings_without_the_keys_give_the_defaults():
+    assert camera.CameraTiming.from_settings({}) == camera.CameraTiming()
+
+
+def test_settings_are_read_by_their_camera_keys():
+    saved = {"camera_zoom_in_ms": 1500, "camera_look_down_ms": 800,
+             "camera_zoom_out_ms": 700, "camera_full_zoom_out_ms": 3000}
+
+    assert camera.CameraTiming.from_settings(saved) == _SLOW
+    assert _SLOW.as_settings() == saved
+
+
+@pytest.mark.parametrize("field, saved, read", [
+    ("zoom_in_ms", -50, 0),
+    ("full_zoom_out_ms", 999999, camera.TIMING_MAX_MS),
+    # O shorter than this can be missed outright, leaving the game in first
+    # person with the cursor locked to the middle of the screen.
+    ("zoom_out_ms", 0, 100),
+    ("look_down_ms", "fast", 500),
+    ("zoom_in_ms", None, 500),
+])
+def test_a_saved_time_is_held_to_its_bounds(field, saved, read):
+    timing = camera.CameraTiming.from_settings({f"camera_{field}": saved})
+
+    assert getattr(timing, field) == read

@@ -1129,6 +1129,12 @@ async function loadSettingsUI() {
     if (expColorEl) expColorEl.classList.toggle('on', s.expedition_color_buttons !== false);
     const expOEl = document.getElementById('setting-expedition-o-ms');
     if (expOEl) expOEl.value = s.expedition_camera_o_ms ?? 100;
+    cameraTiming = { ...CAMERA_TIMING_DEFAULTS };
+    for (const key of Object.keys(CAMERA_TIMING_DEFAULTS)) {
+      const ms = Number(s[`camera_${key}`]);
+      if (Number.isFinite(ms)) cameraTiming[key] = ms;
+    }
+    renderCameraTiming();
     const flickerEl = document.getElementById('toggle-flicker-free');
     if (flickerEl) {
       // Default on -- absent key means enabled.
@@ -1548,10 +1554,60 @@ async function testMacroOperation(btn, mode) {
   setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1200);
 }
 
+// Settings > Debug > Camera Setup Timing -- how long each step of the camera
+// setup takes, in ms, saved as camera_<key>. Same defaults and bounds that
+// core.camera.CameraTiming falls back to; keep the two in step.
+const CAMERA_TIMING_DEFAULTS = { zoom_in_ms: 500, look_down_ms: 500, zoom_out_ms: 500, full_zoom_out_ms: 2000 };
+const CAMERA_TIMING_MIN = { zoom_out_ms: 100 };
+const CAMERA_TIMING_MAX = 10000;
+const CAMERA_TIMING_LABELS = {
+  zoom_in_ms: 'zoom in (I)', look_down_ms: 'look down', zoom_out_ms: 'zoom out (O)', full_zoom_out_ms: 'full zoom out (O)',
+};
+let cameraTiming = { ...CAMERA_TIMING_DEFAULTS };
+
+function renderCameraTiming() {
+  for (const [key, ms] of Object.entries(cameraTiming)) {
+    const el = document.getElementById(`setting-camera-${key.replace(/_/g, '-')}`);
+    if (el) el.value = ms;
+  }
+}
+
+// Clamped here like every other numeric setting (see saveStoryScrollPower):
+// an input's min/max do not stop a typed value. An empty or unreadable entry
+// goes back to its default rather than to 0.
+async function saveCameraTiming(el, key) {
+  const typed = parseInt(el.value, 10);
+  const ms = Number.isFinite(typed)
+    ? Math.max(CAMERA_TIMING_MIN[key] ?? 0, Math.min(CAMERA_TIMING_MAX, typed))
+    : CAMERA_TIMING_DEFAULTS[key];
+  el.value = ms;
+  cameraTiming[key] = ms;
+  try { await pywebview.api.set_setting(`camera_${key}`, ms); } catch (e) {}
+  addLog(`[Settings] Camera setup ${CAMERA_TIMING_LABELS[key]} set to ${ms}ms -- applies from the next Start.`);
+}
+
+async function resetCameraTiming() {
+  cameraTiming = { ...CAMERA_TIMING_DEFAULTS };
+  renderCameraTiming();
+  try {
+    for (const [key, ms] of Object.entries(CAMERA_TIMING_DEFAULTS)) {
+      await pywebview.api.set_setting(`camera_${key}`, ms);
+    }
+  } catch (e) {}
+  addLog('[Debug] Camera setup timing reset to defaults.');
+}
+
+// How long the tilt runs: its three steps plus the ~0.55s of fixed pauses
+// around them (see core.camera.tilt_camera_top_down). The Camera Setup
+// buttons stay disabled until the sequence they started is over.
+function cameraTiltMs() {
+  return cameraTiming.zoom_in_ms + cameraTiming.look_down_ms + cameraTiming.zoom_out_ms + 550;
+}
+
 // Settings > Debug > "Camera Setup" -- the backend does the tilt (I, mouse
-// down, O) + zoom-hold on its own thread (~4s); the game has to be visible
-// and focused, so switch to the Dashboard first, same as every other
-// live-input debug action.
+// down, O) + zoom-hold on its own thread (~4s at the default timing); the
+// game has to be visible and focused, so switch to the Dashboard first, same
+// as every other live-input debug action.
 async function runCameraSetup(btn) {
   const original = btn.textContent;
   switchScreen('dashboard');
@@ -1564,11 +1620,13 @@ async function runCameraSetup(btn) {
   } catch (e) {
     btn.textContent = 'Failed';
   }
-  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4300);
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; },
+             cameraTiltMs() + cameraTiming.full_zoom_out_ms + 300);
 }
 
 // Settings > Debug > "Camera Setup 2" -- same sequence as Camera Setup, but
-// with a user-entered O-hold time (ms) instead of the fixed 2s.
+// with a user-entered O-hold time (ms) for the full zoom-out instead of the
+// Full Zoom Out setting.
 async function runCameraSetup2(btn) {
   const original = btn.textContent;
   const msInput = document.getElementById('camera-setup-2-ms');
@@ -1583,7 +1641,7 @@ async function runCameraSetup2(btn) {
   } catch (e) {
     btn.textContent = 'Failed';
   }
-  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, Math.max(4300, holdMs + 2300));
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, cameraTiltMs() + holdMs + 300);
 }
 
 // First-run welcome (see #onboarding-modal): shown once per install, rows
@@ -1875,7 +1933,7 @@ async function runCameraSetup3(btn) {
   } catch (e) {
     btn.textContent = 'Failed';
   }
-  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, Math.max(4300, holdMs + 2300));
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, cameraTiltMs() + holdMs + 300);
 }
 
 // Settings > Debug > "Camera Yaw Check" -- the diagnostic for "sometimes the

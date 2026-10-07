@@ -1899,3 +1899,103 @@ def test_retired_event_portal_tasks_move_to_the_portals_task(tmp_path):
     assert out["maps"] == ["summer"]
     assert any("Event > Portal" in line for line in out["logs"]), "the move happened silently"
     assert not any("Villian Invasion" in line for line in out["logs"])
+
+
+# ---------------------------------------------------------------------------
+# Settings > Debug > Camera Setup Timing
+# ---------------------------------------------------------------------------
+# Roblox zooms a step per frame, so a setup at low FPS (Remote Desktop) needs
+# longer holds than the defaults -- the four times of the camera setup are
+# settings. The panel's constants are lifted out of app.js like its functions.
+
+_CAMERA_TIMING_WORLD = r"""
+    function grab(name) {
+      const m = src.match(new RegExp(String.raw`(?:const|let) ${name} = [\s\S]*?;\n`));
+      if (!m) throw new Error(name + ' not found in ui/app.js');
+      return m[0];
+    }
+    const sent = [];
+    const inputs = {};
+    const document = { getElementById: id => (inputs[id] = inputs[id] || { value: '' }) };
+    const pywebview = { api: { set_setting: async (k, v) => sent.push([k, v]) } };
+    const w = new Function('document', 'pywebview', 'addLog',
+      ['CAMERA_TIMING_DEFAULTS', 'CAMERA_TIMING_MIN', 'CAMERA_TIMING_MAX', 'CAMERA_TIMING_LABELS',
+       'cameraTiming'].map(grab).join('')
+      + extract('renderCameraTiming') + extract('saveCameraTiming') + extract('resetCameraTiming')
+      + extract('cameraTiltMs')
+      + `return { saveCameraTiming, resetCameraTiming, cameraTiltMs, timing: () => cameraTiming,
+                  defaults: CAMERA_TIMING_DEFAULTS, min: CAMERA_TIMING_MIN, max: CAMERA_TIMING_MAX };`
+    )(document, pywebview, () => {});
+"""
+
+
+@pytest.mark.parametrize("key, typed, saved", [
+    ("zoom_in_ms", "1500", 1500),
+    ("zoom_in_ms", "99999", 10000),
+    ("zoom_in_ms", "-20", 0),
+    # O shorter than this can be missed, leaving the game in first person.
+    ("zoom_out_ms", "0", 100),
+    # An emptied or unreadable box goes back to its default, not to 0.
+    ("full_zoom_out_ms", "", 2000),
+    ("look_down_ms", "abc", 500),
+])
+def test_a_camera_time_is_clamped_before_it_is_saved(key, typed, saved, tmp_path):
+    out = run_js(_CAMERA_TIMING_WORLD + """
+        (async () => {
+          const el = { value: %s };
+          await w.saveCameraTiming(el, %s);
+          console.log(JSON.stringify({ sent, shown: el.value, kept: w.timing()[%s] }));
+        })();
+    """ % (json.dumps(typed), json.dumps(key), json.dumps(key)), tmp_path)
+    assert out == {"sent": [[f"camera_{key}", saved]], "shown": saved, "kept": saved}
+
+
+def test_reset_puts_all_four_camera_times_back(tmp_path):
+    out = run_js(_CAMERA_TIMING_WORLD + """
+        (async () => {
+          await w.saveCameraTiming({ value: '1500' }, 'zoom_in_ms');
+          sent.length = 0;
+          await w.resetCameraTiming();
+          console.log(JSON.stringify({ sent, timing: w.timing(),
+                                       shown: inputs['setting-camera-zoom-in-ms'].value }));
+        })();
+    """, tmp_path)
+    defaults = {"zoom_in_ms": 500, "look_down_ms": 500, "zoom_out_ms": 500, "full_zoom_out_ms": 2000}
+    assert out["sent"] == [[f"camera_{k}", v] for k, v in defaults.items()]
+    assert out["timing"] == defaults
+    assert out["shown"] == 500
+
+
+def test_the_camera_setup_buttons_wait_out_longer_times(tmp_path):
+    """They stay disabled until the sequence they started is over -- with
+    longer holds that is later, and a second press would overlap the first."""
+    out = run_js(_CAMERA_TIMING_WORLD + """
+        (async () => {
+          const before = w.cameraTiltMs();
+          await w.saveCameraTiming({ value: '1500' }, 'zoom_in_ms');
+          console.log(JSON.stringify({ before, after: w.cameraTiltMs() }));
+        })();
+    """, tmp_path)
+    assert out["after"] == out["before"] + 1000
+
+
+def test_the_ui_and_the_backend_agree_on_defaults_and_bounds(tmp_path):
+    from core import camera
+
+    out = run_js(_CAMERA_TIMING_WORLD + """
+        console.log(JSON.stringify({ defaults: w.defaults, min: w.min, max: w.max }));
+    """, tmp_path)
+    assert {f"camera_{k}": v for k, v in out["defaults"].items()} == camera.CameraTiming().as_settings()
+    assert out["min"] == camera.TIMING_MIN_MS
+    assert out["max"] == camera.TIMING_MAX_MS
+
+
+def test_every_camera_time_has_its_input_on_the_settings_screen():
+    from core import camera
+
+    with open(INDEX_HTML, encoding="utf-8") as f:
+        html = f.read()
+    for name in camera.CameraTiming().as_settings():
+        key = name[len("camera_"):]
+        assert f'id="setting-camera-{key.replace("_", "-")}"' in html, f"no input for {key}"
+        assert f"saveCameraTiming(this, '{key}')" in html, f"the {key} input does not save it"

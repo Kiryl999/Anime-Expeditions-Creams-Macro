@@ -1655,7 +1655,7 @@
           <div class="setting-row" style="padding: 14px;">
             <div>
               <div class="setting-label">Camera Setup</div>
-              <div class="setting-desc">Holds I to zoom into first person, moves the mouse down to look at the ground and holds O to zoom back out top-down, then holds O for 2s more to zoom out fully.</div>
+              <div class="setting-desc">Holds I to zoom into first person, moves the mouse down to look at the ground and holds O to zoom back out top-down, then holds O once more to zoom out fully. How long each step takes is set under Camera Setup Timing below.</div>
             </div>
             <button id="btn-camera-setup" onclick="runCameraSetup(this)" class="text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);">Run</button>
           </div>
@@ -1663,7 +1663,7 @@
           <div class="setting-row" style="padding: 14px;">
             <div>
               <div class="setting-label">Camera Setup 2</div>
-              <div class="setting-desc">Same as above, but with a custom O-hold time (ms) instead of the fixed 2s.</div>
+              <div class="setting-desc">Same as above, but the full zoom-out holds O for the time entered here (ms) instead of the Full Zoom Out setting.</div>
             </div>
             <div class="flex items-center gap-2" style="flex-shrink: 0;">
               <input type="number" id="camera-setup-2-ms" value="2000" min="0" step="100"
@@ -1704,6 +1704,56 @@
             </div>
             <input type="number" id="setting-expedition-o-ms" min="0" max="3000" step="50"
                    class="block-input" style="width: 90px; flex-shrink: 0;" onchange="saveExpeditionOZoom(this)">
+          </div>
+        </section>
+      </div>
+
+      <!-- How long each step of the camera setup takes (core.camera.CameraTiming).
+           Roblox zooms a step per frame, so a setup that runs at low FPS
+           (Remote Desktop) needs longer holds than the defaults. -->
+      <div class="settings-category" data-cat="debug" style="margin-top: 20px;">
+        <section class="rp-panel">
+          <header class="rp-panel-head">
+            <span class="rp-head-tag" style="--rp-tag: var(--slate);">Control</span>
+            <span class="rp-head-title">Camera Setup Timing</span>
+            <span class="rp-head-rule"></span>
+            <button onclick="resetCameraTiming()" class="text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--rose); border-color: var(--border);" title="Reset the four camera setup times back to their defaults">Reset to Defaults</button>
+          </header>
+
+          <div class="setting-row" style="padding: 14px;">
+            <div>
+              <div class="setting-label">Zoom In (I)</div>
+              <div class="setting-desc">How long I is held to zoom all the way into first person, where the mouse turns the camera. Roblox zooms a step per frame, so where it runs at low FPS (e.g. over Remote Desktop) the same hold gets less far -- raise it there. Holding longer than needed changes nothing. Default 500 ms.</div>
+            </div>
+            <input type="number" id="setting-camera-zoom-in-ms" min="0" max="10000" step="50"
+                   class="block-input" style="width: 90px; flex-shrink: 0;" onchange="saveCameraTiming(this, 'zoom_in_ms')">
+          </div>
+
+          <div class="setting-row" style="padding: 14px;">
+            <div>
+              <div class="setting-label">Look Down (Mouse)</div>
+              <div class="setting-desc">How long the mouse is moved down in first person to point the camera at the ground. Default 500 ms.</div>
+            </div>
+            <input type="number" id="setting-camera-look-down-ms" min="0" max="10000" step="50"
+                   class="block-input" style="width: 90px; flex-shrink: 0;" onchange="saveCameraTiming(this, 'look_down_ms')">
+          </div>
+
+          <div class="setting-row" style="padding: 14px;">
+            <div>
+              <div class="setting-label">Zoom Out (O)</div>
+              <div class="setting-desc">How long O is held to zoom back out of first person, still looking down. Part of every camera setup, Expedition and Gold Shop included. At least 100 ms. Default 500 ms.</div>
+            </div>
+            <input type="number" id="setting-camera-zoom-out-ms" min="100" max="10000" step="50"
+                   class="block-input" style="width: 90px; flex-shrink: 0;" onchange="saveCameraTiming(this, 'zoom_out_ms')">
+          </div>
+
+          <div class="setting-row" style="padding: 14px; border-bottom: none;">
+            <div>
+              <div class="setting-label">Full Zoom Out (O)</div>
+              <div class="setting-desc">How long O is held once more afterwards to zoom all the way out -- the normal camera setup only, not Expedition. Holding longer than needed changes nothing. Default 2000 ms. All four apply from the next Start; the Camera Setup buttons above use them right away.</div>
+            </div>
+            <input type="number" id="setting-camera-full-zoom-out-ms" min="0" max="10000" step="50"
+                   class="block-input" style="width: 90px; flex-shrink: 0;" onchange="saveCameraTiming(this, 'full_zoom_out_ms')">
           </div>
         </section>
       </div>

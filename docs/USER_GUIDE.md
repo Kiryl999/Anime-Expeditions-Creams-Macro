@@ -128,6 +128,12 @@ so leave it **On** for any operation that places units by position. Switch it
 **Off** only for operations that do not, for example one that just turns on the
 game's Auto Play.
 
+The camera setup zooms in with I, looks down with the mouse and zooms back out
+with O. Roblox zooms a step per frame, so where it runs at fewer frames per
+second -- over Remote Desktop, for example -- the same key press zooms less far.
+If the camera does not end up looking straight down and fully zoomed out there,
+hold the keys longer under **Settings > Debug > Camera Setup Timing**.
+
 ### Expedition encounters
 
 Expedition nodes can drop an encounter that has to be walked to and talked to.
