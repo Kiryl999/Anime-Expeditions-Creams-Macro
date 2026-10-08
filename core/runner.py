@@ -2267,12 +2267,18 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 # activate_window, so the tap actually reaches the game.)
                 self._keyboard.tap(ord("Z"))
                 time.sleep(0.1)
-                vision.click_match(self._mouse, hwnd, start_match)
-                self._interruptible_sleep(START_GAME_CLICK_VERIFY_SETTLE, stop_event)
+                # Clicked where it is now, not where it was: a button that
+                # went away meanwhile leaves the HUD under that spot. Two looks,
+                # so one dropped capture doesn't count as gone.
+                _name, now = self._find_start_game_button(hwnd, stop_event, START_GAME_CLICK_VERIFY_INTERVAL)
+                if now is None:
+                    self._log("[Macro] Start Game went away before the click -- the round is starting.")
+                    break
+                vision.click_match(self._mouse, hwnd, now)
+
+                start_name, start_match = self._start_game_still_up(hwnd, stop_event)
                 if self._checkpoint(stop_event):
                     return False
-
-                start_name, start_match = self._find_start_game_button(hwnd)
                 if start_match is None:
                     break
                 if attempt == START_GAME_CLICK_RETRY_ATTEMPTS:
@@ -2284,6 +2290,38 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                         f"Clicked Start Game {START_GAME_CLICK_RETRY_ATTEMPTS} times but it's still showing -- "
                         f"the round may not have actually started.", 0xE05A6D, screenshot_path)
         return not self._checkpoint(stop_event)
+
+    def _start_game_still_up(self, hwnd, stop_event: threading.Event):
+        """After a Start Game click: (name, match) when the button is still
+        there to be clicked again, (None, None) once it has gone.
+
+        Watched for START_GAME_CLICK_VERIFY_WINDOW, not judged from one look:
+        a click that took can leave the button on screen for a moment, and a
+        second click on it then lands on whatever the HUD has under that spot
+        once it is gone. Gone on two looks in a row is gone. Still there at the
+        end counts only when it held its spot between the last two looks -- a
+        button that keeps moving or flickering past the window is on its way
+        out, not waiting for a click.
+        """
+        deadline = time.time() + START_GAME_CLICK_VERIFY_WINDOW
+        give_up = deadline + START_GAME_CLICK_VERIFY_WINDOW
+        last_name, last = None, None
+        misses = 0
+        while time.time() < give_up:
+            self._interruptible_sleep(START_GAME_CLICK_VERIFY_INTERVAL, stop_event)
+            if stop_event.is_set():
+                break
+            name, match = self._find_start_game_button(hwnd)
+            held = (match is not None and last is not None and name == last_name
+                    and abs(match["cx"] - last["cx"]) <= CLICK_SETTLE_TOLERANCE
+                    and abs(match["cy"] - last["cy"]) <= CLICK_SETTLE_TOLERANCE)
+            if held and time.time() >= deadline:
+                return name, match
+            misses = 0 if match is not None else misses + 1
+            if misses >= 2:
+                break
+            last_name, last = name, match
+        return None, None
 
     def _begin_battle(self, task: dict) -> list:
         """Reset every per-match battle counter and return the Battle blocks

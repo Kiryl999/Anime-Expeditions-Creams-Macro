@@ -78,7 +78,15 @@ PLAY_CLICK_RETRY_ATTEMPTS = 3
 # forever while _wait_for_match_result was already off watching for a
 # Victory/Defeat that could never come.
 START_GAME_CLICK_RETRY_ATTEMPTS = 3
-START_GAME_CLICK_VERIFY_SETTLE = 1.0  # after clicking, how long to wait before checking it's actually gone
+# After a Start Game click the button is watched this long, a look every
+# interval, before it counts as still up and is clicked again. It used to be
+# one look a second after the click -- and over Remote Desktop the button can
+# still be on screen then although the click took. The re-click then landed on
+# the HUD where the button had been and switched the game's Auto Play straight
+# back off (reported live on the portal). Gone on two looks in a row is gone;
+# only a button still holding its spot at the end gets another click.
+START_GAME_CLICK_VERIFY_WINDOW = 3.0
+START_GAME_CLICK_VERIFY_INTERVAL = 0.3
 START_GAME_BUTTON_WAIT_TIMEOUT = 5.0  # how long to poll for Start Game right after Pre Start hands off
 # ── Native Expedition encounter handling (_handle_expedition_encounter).
 # An encounter node parks the client somewhere a match result can never come
