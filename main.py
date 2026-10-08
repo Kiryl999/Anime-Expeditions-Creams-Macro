@@ -220,13 +220,10 @@ MACRO_COORD_DEFAULTS = {
     "portal_list_x": None, "portal_list_y": None,
     "portal_list_w": None, "portal_list_h": None,
     # Fish inventory row (Tidal Siege). Slot 1's centre plus the step to the
-    # next slot describes all six; the bin defaults to one step PAST slot 6,
-    # which is where it sits. All unset = the slots are never touched, which
-    # is the shipped state -- see FISH_SLOT_COUNT for why nothing is guessed.
+    # next slot describes all six. All unset = the slots are never touched,
+    # which is the shipped state -- see FISH_SLOT_COUNT for why nothing is
+    # guessed.
     "fish_slot_x": None, "fish_slot_y": None, "fish_slot_step": None,
-    # Optional override for the bin. None = Auto: slot 1 + FISH_SLOT_COUNT
-    # steps. Set it when the bin is not exactly one slot-width past slot 6.
-    "fish_trash_x": None, "fish_trash_y": None,
     "screen_middle_x": 576, "screen_middle_y": 378,
     "unit_info_reset_x": 3, "unit_info_reset_y": 3,
 }
@@ -962,7 +959,7 @@ class Api:
     # button next to their Pick. Every other macro coordinate has a real
     # default and is reset through reset_macro_coords instead.
     OPTIONAL_COORD_PREFIXES = ("team_button", "portal_search", "portal_list",
-                               "fish_slot", "fish_trash")
+                               "fish_slot")
 
     def clear_macro_coord(self, prefix: str) -> dict:
         """Clear an optional coordinate override back to automatic behavior.

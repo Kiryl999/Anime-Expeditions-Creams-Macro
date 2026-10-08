@@ -919,10 +919,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
         All three numbers come from Settings > Debug > Macro Coordinates. An
         unset row means the feature is OFF rather than guessed: there is no
-        default that could be right, and a made-up row would drag whatever
-        happens to sit at those pixels onto whatever sits where the bin was
-        assumed to be. A step of 0 is treated as unset for the same reason --
-        it would pile all six slots on top of each other.
+        default that could be right, and a made-up row would click whatever
+        happens to sit at those pixels. A step of 0 is treated as unset for the
+        same reason -- it would pile all six slots on top of each other.
         """
         x = self._coords.get("fish_slot_x")
         y = self._coords.get("fish_slot_y")
@@ -944,43 +943,29 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         w, h = FISH_SLOT_BOX
         return (int(x + index * step - w / 2), int(y - h / 2), w, h)
 
-    def _fish_trash_point(self) -> tuple:
-        """Where an unwanted fish is dragged TO.
-
-        Auto is one step past slot 6, which is where the bin sits. The
-        override exists because "one slot-width" is an assumption about the
-        gap, not something the row's own numbers can tell us -- and a drag
-        that lands beside the bin drops the fish back into the row.
-        """
-        x = self._coords.get("fish_trash_x")
-        y = self._coords.get("fish_trash_y")
-        if x not in (None, "") and y not in (None, ""):
-            return int(x), int(y)
-        (base_x, base_y), step = self._fish_row()
-        return base_x + FISH_SLOT_COUNT * step, base_y
-
     def _tick_fish_inventory(self, hwnd, stop_event: threading.Event = None) -> bool:
-        """Empty the fish inventory: cash the wanted, bin the unwanted.
+        """Cash in the wanted fish: one left-click each.
 
         A catch does not pay out by itself -- it sits in one of the six slots
-        until it is dealt with, and six full slots take no more fish. Wanted
-        fish pay out on a single left-click; unwanted ones are dragged onto
-        the bin right of slot 6. Neither raises a dialog, so there is nothing
-        to close afterwards.
+        until it is dealt with. A wanted fish pays out on a single left-click,
+        which raises no dialog, so there is nothing to close afterwards. Every
+        other fish is left where it is, never clicked and never moved: dragging
+        the unwanted ones onto the bin right of slot 6 was dropped on request.
+        Leaving them costs nothing: once all six slots are full the game cashes
+        every fish in by itself.
 
         Read per SLOT rather than as one sweep of the whole row: a slot box
         says which slot a hit belongs to without any position arithmetic, and
         a neighbouring slot's card cannot match from it, since a match has to
-        fit whole inside the box (see FISH_SLOT_BOX) -- binning the wrong slot
-        throws away a paying fish.
+        fit whole inside the box (see FISH_SLOT_BOX).
 
-        Unwanted is asked FIRST and a hit ends that slot. A fish is one or the
-        other, and on the ambiguous frame (a half-drawn icon matching both
-        folders) the cheap mistake is clicking a fish that turns out to be
-        junk, not binning one that pays.
+        unwanted_fish/ is asked FIRST and a hit leaves that slot alone: on the
+        ambiguous frame (a half-drawn icon matching both folders) not clicking
+        is what "unwanted" asks for. The folder is optional -- without a crop
+        in it every wanted hit is clicked.
 
         Never fatal, exactly like the rod watch: an unpicked row or a missing
-        crop folder is reported once and switches this off until the next
+        wanted_fish crop is reported once and switches this off until the next
         match, leaving the rest of fishing running.
         """
         if self._fish_inventory_paused:
@@ -1003,10 +988,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 return acted
             region = self._fish_slot_region(index)
             try:
-                hit = vision.find_image(hwnd, FISH_UNWANTED_IMAGE, region=region)
-                unwanted = hit is not None
-                if hit is None:
-                    hit = vision.find_image(hwnd, FISH_WANTED_IMAGE, region=region)
+                if vision.find_image(hwnd, FISH_UNWANTED_IMAGE, region=region) is not None:
+                    continue
+            except vision.TemplateNotFound:
+                pass  # no unwanted crops: nothing to leave alone by name
+            try:
+                hit = vision.find_image(hwnd, FISH_WANTED_IMAGE, region=region)
             except vision.TemplateNotFound as exc:
                 self._log(f"[Macro] Fish inventory: {exc} Not touching the slots this match.")
                 self._fish_inventory_paused = True
@@ -1015,15 +1002,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 continue
 
             point = vision.ref_to_screen(hwnd, hit["cx"], hit["cy"])
-            if unwanted:
-                trash = vision.ref_to_screen(hwnd, *self._fish_trash_point())
-                self._log(f"[Macro] Fish inventory: slot {index + 1} holds an unwanted fish "
-                          f"(score {hit['score']:.2f}) -- dragging it to the bin.")
-                self._mouse.drag(point[0], point[1], trash[0], trash[1])
-            else:
-                self._log(f"[Macro] Fish inventory: slot {index + 1} holds a wanted fish "
-                          f"(score {hit['score']:.2f}) -- clicking it to cash it in.")
-                self._mouse.click(*point)
+            self._log(f"[Macro] Fish inventory: slot {index + 1} holds a wanted fish "
+                      f"(score {hit['score']:.2f}) -- clicking it to cash it in.")
+            self._mouse.click(*point)
             acted = True
             time.sleep(FISH_SETTLE_DELAY)
         return acted
@@ -2838,12 +2819,9 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 # Asked every tick for the whole round; _ensure_rod_out paces
                 # its own looks.
                 if self._ensure_rod_out(hwnd, stop_event):
-                    # The inventory is dealt with BEFORE casting again: six
-                    # full slots take no further catch, so a row left standing
-                    # quietly ends fishing for the round. A pass that clicked
-                    # or dragged skips this tick's cast -- a cast landing in
-                    # the middle of a drag drops the fish anywhere but the bin,
-                    # and the next tick casts anyway.
+                    # The inventory is dealt with BEFORE casting again. A pass
+                    # that clicked a fish skips this tick's cast, so the two
+                    # clicks never crowd each other; the next tick casts anyway.
                     if not self._tick_fish_inventory(hwnd, stop_event):
                         self._tick_fishing(hwnd, fishing_point, fishing_interval)
 

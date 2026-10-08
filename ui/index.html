@@ -1986,19 +1986,6 @@
 
           <div class="setting-row" style="padding: 14px;">
             <div>
-              <div class="setting-label">Fish Bin</div>
-              <div class="setting-desc">Where unwanted fish get dragged. Auto is one slot-width past slot 6, which is where the bin sits -- pick it by hand if the gap is different, since a drag that lands beside the bin drops the fish back into the row.</div>
-            </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <input id="coord-fish_trash_x" class="block-input" style="width: 56px;" type="number" placeholder="Auto" onchange="setMacroCoord('fish_trash_x', this.value)">
-              <input id="coord-fish_trash_y" class="block-input" style="width: 56px;" type="number" placeholder="Auto" onchange="setMacroCoord('fish_trash_y', this.value)">
-              <button onclick="openCoordPicker('fish_trash')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Capture the Roblox screen and click the middle of the bin">Pick</button>
-              <button onclick="clearMacroCoord('fish_trash')" class="text-xs font-semibold px-2 py-1.5 rounded-lg border flex-shrink-0 settings-action-btn" style="color: var(--slate); border-color: var(--border);" title="Derive the bin from the slot row again">Auto</button>
-            </div>
-          </div>
-
-          <div class="setting-row" style="padding: 14px;">
-            <div>
               <div class="setting-label">Portal Search Box</div>
               <div class="setting-desc">Optional manual point inside the portal picker's search field. Auto matches the shipped "Search..." crop and clicks its center, which sits at the left end of the bar and can land outside the field -- pick a point in the middle of the bar if the macro types into nothing.</div>
             </div>

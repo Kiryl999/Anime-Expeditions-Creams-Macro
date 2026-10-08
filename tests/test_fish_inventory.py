@@ -1,14 +1,12 @@
 """What happens to a fish after it is caught.
 
 A catch does not pay out by itself: it sits in one of the six fish-inventory
-slots until it is dealt with, and six full slots take no further catch -- so a
-row left standing quietly ends fishing for the rest of the round. Wanted fish
-pay out on a single left-click; unwanted ones have to be dragged onto the bin
-right of slot 6. Neither raises a dialog.
+slots until it is dealt with. Wanted fish pay out on a single left-click, which
+raises no dialog. Every other fish is left where it is -- never clicked, never
+moved: dragging the unwanted ones onto the bin was dropped on request.
 
-The asymmetry is what these pin down: clicking a fish that turns out to be
-junk costs nothing, dragging one that pays throws the money away. Every
-tie-break here leans that way.
+What these pin down: a fish is only ever clicked when it is a wanted one and
+not an unwanted one, and nothing is ever dragged anywhere.
 """
 from pathlib import Path
 
@@ -26,7 +24,6 @@ from core.runner_constants import (
 # tests pick one too rather than leaning on a default -- there is none.
 SLOT_1 = (420, 700)
 STEP = 62
-TRASH = (SLOT_1[0] + FISH_SLOT_COUNT * STEP, SLOT_1[1])
 
 # Taken before any test stubs it, for the tests that run the real search.
 REAL_FIND_IMAGE = runner_module.vision.find_image
@@ -95,7 +92,7 @@ def _slot_center(index):
 
 
 # ---------------------------------------------------------------------------
-# Cashing in and binning
+# Cashing in, and leaving the rest alone
 # ---------------------------------------------------------------------------
 
 def test_a_wanted_fish_is_clicked_once(monkeypatch):
@@ -106,16 +103,17 @@ def test_a_wanted_fish_is_clicked_once(monkeypatch):
     assert runner.events == [("click",) + _slot_center(0)]
 
 
-def test_an_unwanted_fish_is_dragged_to_the_bin(monkeypatch):
+def test_an_unwanted_fish_is_left_alone(monkeypatch):
+    """Not clicked, not dragged to the bin -- not touched at all."""
     runner = _runner(monkeypatch, slots=["unwanted"])
 
-    assert runner._tick_fish_inventory(1) is True
-    assert runner.events == [("drag",) + _slot_center(0) + TRASH]
+    assert runner._tick_fish_inventory(1) is False
+    assert runner.events == []
 
 
-def test_a_wanted_fish_is_never_dragged(monkeypatch):
-    """The expensive mistake: a binned fish pays nothing."""
-    runner = _runner(monkeypatch, slots=["wanted", "wanted", "wanted"])
+def test_nothing_is_ever_dragged(monkeypatch):
+    runner = _runner(monkeypatch, slots=["wanted", "unwanted", "wanted",
+                                         "unwanted", "unwanted", "wanted"])
 
     runner._tick_fish_inventory(1)
 
@@ -130,32 +128,28 @@ def test_empty_slots_are_left_alone(monkeypatch):
 
 
 def test_every_slot_is_handled_in_one_pass(monkeypatch):
-    """A full row takes no more fish, so one pass has to clear all six rather
-    than one slot per tick."""
+    """One pass cashes in every wanted fish rather than one slot per tick."""
     runner = _runner(monkeypatch, slots=["wanted", "unwanted", "wanted",
                                          None, "unwanted", "wanted"])
 
     runner._tick_fish_inventory(1)
 
-    assert [e[0] for e in runner.events] == ["click", "drag", "click", "drag", "click"]
+    assert runner.events == [("click",) + _slot_center(i) for i in (0, 2, 5)]
 
 
-def test_a_fish_matching_both_folders_is_kept_not_binned(monkeypatch):
+def test_a_fish_matching_both_folders_is_not_clicked(monkeypatch):
     """A half-drawn icon can match both folders. Unwanted is asked first, so
-    this pins the tie-break: the cheap mistake is clicking junk, not binning a
-    fish that pays."""
+    this pins the tie-break: an unwanted fish must never be clicked, even
+    when it looks like a wanted one."""
     runner = _runner(monkeypatch, slots=["wanted"])
-    hits = {FISH_UNWANTED_IMAGE: None}
 
     def look(hwnd, name, region=None, **k):
-        if name in hits:
-            return hits[name]
         return {"score": 0.9, "cx": region[0], "cy": region[1]}
 
     monkeypatch.setattr(runner_module.vision, "find_image", look)
-    runner._tick_fish_inventory(1)
 
-    assert [e[0] for e in runner.events] == ["click"] * FISH_SLOT_COUNT
+    assert runner._tick_fish_inventory(1) is False
+    assert runner.events == []
 
 
 def test_unwanted_is_asked_before_wanted(monkeypatch):
@@ -194,20 +188,30 @@ def test_the_slots_are_read_in_order_and_each_one_only_once(monkeypatch):
 # Never breaking the round
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("missing", [(FISH_WANTED_IMAGE,), (FISH_UNWANTED_IMAGE,)])
-def test_a_missing_crop_folder_is_survivable(monkeypatch, missing):
-    """Neither folder ships filled. Without crops the slots are simply left
-    alone -- casting and the rod watch keep running."""
-    runner = _runner(monkeypatch, slots=["wanted"], missing=missing)
+def test_without_wanted_crops_the_slots_are_left_alone(monkeypatch):
+    """Nothing to recognise a paying fish by -- casting and the rod watch
+    keep running."""
+    runner = _runner(monkeypatch, slots=["wanted"], missing=(FISH_WANTED_IMAGE,))
 
     assert runner._tick_fish_inventory(1) is False
     assert runner.events == []
     assert len(runner.logged) == 1
 
 
+def test_unwanted_crops_are_optional(monkeypatch):
+    """They only say what to leave alone -- without them every wanted fish is
+    still cashed in, and that is not worth a warning."""
+    runner = _runner(monkeypatch, slots=["wanted", None, "wanted"],
+                     missing=(FISH_UNWANTED_IMAGE,))
+
+    assert runner._tick_fish_inventory(1) is True
+    assert runner.events == [("click",) + _slot_center(i) for i in (0, 2)]
+    assert [line for line in runner.logged if "unwanted" in line.lower()] == []
+
+
 def test_a_missing_crop_is_said_once_not_every_tick(monkeypatch):
     clock = _clock(monkeypatch)
-    runner = _runner(monkeypatch, slots=["wanted"], missing=(FISH_UNWANTED_IMAGE,))
+    runner = _runner(monkeypatch, slots=["wanted"], missing=(FISH_WANTED_IMAGE,))
 
     for _ in range(5):
         runner._tick_fish_inventory(1)
@@ -219,7 +223,7 @@ def test_a_missing_crop_is_said_once_not_every_tick(monkeypatch):
 def test_the_pause_lifts_on_the_next_match(monkeypatch):
     """Paused for the match, never for the run -- the rule the rod watch
     learned the hard way after one failed attempt cost 9.5 hours of fishing."""
-    runner = _runner(monkeypatch, slots=["wanted"], missing=(FISH_UNWANTED_IMAGE,))
+    runner = _runner(monkeypatch, slots=["wanted"], missing=(FISH_WANTED_IMAGE,))
     runner._tick_fish_inventory(1)
 
     runner._reset_fishing_for_match()
@@ -252,14 +256,15 @@ def test_the_first_tick_of_a_match_reads_the_slots(monkeypatch):
     """A match can start with fish still sitting in the row from the last
     one."""
     _clock(monkeypatch)
-    runner = _runner(monkeypatch, slots=["unwanted"])
+    runner = _runner(monkeypatch, slots=["wanted"])
 
     assert runner._tick_fish_inventory(1) is True
 
 
 def test_a_pass_that_acted_holds_this_ticks_cast_back():
-    """A cast landing in the middle of a drag drops the fish anywhere but the
-    bin. The next tick casts anyway, so this costs at most one cast."""
+    """A pass that clicked a fish skips this tick's cast, so the two clicks
+    never crowd each other. The next tick casts anyway, so this costs at most
+    one cast."""
     import inspect
 
     source = inspect.getsource(MacroRunner._wait_for_match_result)
@@ -295,9 +300,9 @@ def test_both_fish_folders_exist():
     {"fish_slot_y": "nonsense"},
 ])
 def test_an_unpicked_row_is_off_not_guessed(monkeypatch, coords):
-    """No default could be right, and a made-up row would drag whatever sits
-    at those pixels onto whatever sits where the bin was assumed to be."""
-    runner = _runner(monkeypatch, slots=["unwanted"], coords=coords)
+    """No default could be right, and a made-up row would click whatever
+    sits at those pixels."""
+    runner = _runner(monkeypatch, slots=["wanted"], coords=coords)
 
     assert runner._tick_fish_inventory(1) is False
     assert runner.events == []
@@ -317,27 +322,6 @@ def test_an_unpicked_row_says_so_once(monkeypatch):
     assert "Macro Coordinates" in runner.logged[0]
 
 
-def test_the_bin_defaults_to_one_step_past_the_last_slot(monkeypatch):
-    runner = _runner(monkeypatch)
-    last_slot = runner._fish_slot_region(FISH_SLOT_COUNT - 1)
-
-    trash = runner._fish_trash_point()
-
-    assert trash == TRASH
-    assert trash[0] > last_slot[0] + last_slot[2], "the bin sits right of slot 6"
-
-
-def test_a_picked_bin_wins_over_the_derived_one(monkeypatch):
-    """One slot-width past slot 6 is an assumption about the gap, and a drag
-    landing beside the bin drops the fish straight back into the row."""
-    runner = _runner(monkeypatch, slots=["unwanted"],
-                     coords={"fish_trash_x": 900, "fish_trash_y": 688})
-
-    runner._tick_fish_inventory(1)
-
-    assert runner.events == [("drag",) + _slot_center(0) + (900, 688)]
-
-
 def test_the_row_moves_with_the_setting(monkeypatch):
     """The whole point of picking it: another layout is another row, not a
     code change."""
@@ -345,7 +329,6 @@ def test_the_row_moves_with_the_setting(monkeypatch):
                                           "fish_slot_step": 70})
 
     assert runner._fish_slot_region(2)[0] + FISH_SLOT_BOX[0] // 2 == 240
-    assert runner._fish_trash_point() == (100 + 6 * 70, 200)
 
 
 def test_both_coordinate_tables_carry_the_fish_row():
@@ -354,8 +337,7 @@ def test_both_coordinate_tables_carry_the_fish_row():
     the other is a setting that silently does nothing."""
     import main
 
-    for key in ("fish_slot_x", "fish_slot_y", "fish_slot_step",
-                "fish_trash_x", "fish_trash_y"):
+    for key in ("fish_slot_x", "fish_slot_y", "fish_slot_step"):
         assert key in main.MACRO_COORD_DEFAULTS, key
         assert key in DEFAULT_COORDS, key
         assert main.MACRO_COORD_DEFAULTS[key] is None and DEFAULT_COORDS[key] is None
@@ -365,13 +347,26 @@ def test_the_fish_row_can_be_cleared_from_settings():
     """Picked by hand, so it has to be un-pickable by hand."""
     import main
 
-    for prefix in ("fish_slot", "fish_trash"):
-        assert prefix in main.Api.OPTIONAL_COORD_PREFIXES
+    assert "fish_slot" in main.Api.OPTIONAL_COORD_PREFIXES
+
+
+def test_the_bin_is_gone_everywhere():
+    """Nothing is dragged to the bin anymore, so there is no point to pick for
+    it -- a leftover setting would only suggest otherwise."""
+    import main
+
+    root = Path(__file__).resolve().parent.parent
+    assert not hasattr(MacroRunner, "_fish_trash_point")
+    assert not [k for k in main.MACRO_COORD_DEFAULTS if k.startswith("fish_trash")]
+    assert not [k for k in DEFAULT_COORDS if k.startswith("fish_trash")]
+    assert not [p for p in main.Api.OPTIONAL_COORD_PREFIXES if p.startswith("fish_trash")]
+    for page in ("ui/index.html", "ui/app.js"):
+        assert "fish_trash" not in (root / page).read_text(encoding="utf-8"), page
 
 
 def test_the_ui_knows_how_many_slots_there_are():
-    """app.js previews all six slots plus the bin after a Pick; a drift here
-    would preview a row the runner does not read."""
+    """app.js previews all six slots after a Pick; a drift here would preview
+    a row the runner does not read."""
     import re
     from pathlib import Path
 
@@ -385,8 +380,7 @@ def test_every_fish_coordinate_has_an_input_to_edit_it():
     from pathlib import Path
 
     html = (Path(__file__).resolve().parent.parent / "ui" / "index.html").read_text(encoding="utf-8")
-    for key in ("fish_slot_x", "fish_slot_y", "fish_slot_step",
-                "fish_trash_x", "fish_trash_y"):
+    for key in ("fish_slot_x", "fish_slot_y", "fish_slot_step"):
         assert 'id="coord-{}"'.format(key) in html, key
 
 
@@ -401,7 +395,7 @@ def test_a_shipped_crop_is_found_in_its_slot(monkeypatch, name, path):
     bigger than the image it searches as a plain miss, so every slot read as
     empty and not one fish was ever clicked. Here the real matcher reads a
     row with the crop sitting in slot 1 -- and a wanted fish coming out as
-    unwanted fails too, since that drags a paying fish to the bin."""
+    unwanted fails too, since that leaves a paying fish in its slot."""
     import numpy as np
 
     card = _crop_gray(path)
@@ -417,9 +411,12 @@ def test_a_shipped_crop_is_found_in_its_slot(monkeypatch, name, path):
                         lambda hwnd, region=None: screen[region[1]:region[1] + region[3],
                                                          region[0]:region[0] + region[2]])
 
+    if name == FISH_UNWANTED_IMAGE:
+        assert runner._tick_fish_inventory(1) is False
+        assert runner.events == []
+        return
     assert runner._tick_fish_inventory(1) is True
-    expected = ("click",) if name == FISH_WANTED_IMAGE else ("drag",)
-    assert runner.events[0][:1] == expected and len(runner.events) == 1
+    assert runner.events[0][:1] == ("click",) and len(runner.events) == 1
     # On the card, not necessarily its centre: another crop of the same fish
     # (e.g. the icon without its label) can be the variant that hits first.
     x, y = runner.events[0][1:3]

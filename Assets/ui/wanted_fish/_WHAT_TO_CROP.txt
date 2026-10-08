@@ -17,9 +17,9 @@ Where/how:
 
 Used by:
   core/runner.py's _tick_fish_inventory. A match here means the slot is
-  left-clicked once, which cashes the fish in. The counterpart folder
-  Assets/ui/unwanted_fish/ marks the fish that get dragged onto the bin
-  instead -- an icon must not appear in both folders.
+  left-clicked once, which cashes the fish in. Every other fish is left
+  in its slot. The counterpart folder Assets/ui/unwanted_fish/ marks fish
+  that must never be clicked -- an icon must not appear in both folders.
 
 Easiest way: Settings > General > Image Manager > "UI Buttons" tab > Capture
 Roblox, drag a box around the icon, type the name "wanted_fish", Save Crop

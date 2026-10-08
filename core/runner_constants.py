@@ -396,18 +396,19 @@ FISHING_CLICK_INTERVAL = 6.0
 
 # What happens to a fish AFTER it is caught. A catch lands in the 6-slot fish
 # inventory and stays there: a wanted fish pays out on a single left-click,
-# an unwanted one has to be dragged onto the bin sitting right of slot 6.
-# Neither puts up a dialog, so there is nothing to confirm or close -- the
-# slot just empties, which is also how the macro tells that it worked.
+# which puts up no dialog -- the slot just empties. Every other fish is left
+# alone, never clicked and never moved (dragging the unwanted ones onto the
+# bin right of slot 6 was dropped on request).
 #
 # Both folders hold one crop PER FISH, all tried as interchangeable variants
 # of one name (the folder-per-name rule every other image here follows): a
-# hit on any crop in unwanted_fish/ means "bin it", a hit on any crop in
-# wanted_fish/ means "click it". Adding a fish is dropping a crop in a
-# folder, no code change. Neither folder ships filled -- capture the icons
-# as they render IN the slot (Settings > General > Image Manager). With a
-# folder empty the check reports it once and leaves the slots alone, so
-# fishing keeps working exactly as it did before.
+# hit on any crop in wanted_fish/ means "click it", a hit on any crop in
+# unwanted_fish/ means "leave it alone", even if a wanted crop matches it
+# too. Adding a fish is dropping a crop in a folder, no code change. Capture
+# the icons as they render IN the slot (Settings > General > Image Manager).
+# With wanted_fish/ empty the check reports it once and leaves the slots
+# alone, so fishing keeps working exactly as it did before; unwanted_fish/
+# may stay empty.
 FISH_WANTED_IMAGE = "wanted_fish"
 FISH_UNWANTED_IMAGE = "unwanted_fish"
 # The six slots sit in one evenly spaced ROW, so the whole layout is slot 1's
@@ -1223,13 +1224,10 @@ DEFAULT_COORDS = {
     "portal_list_x": None, "portal_list_y": None,
     "portal_list_w": None, "portal_list_h": None,
     # Fish inventory row (Tidal Siege). Slot 1's centre plus the step to the
-    # next slot describes all six; the bin defaults to one step PAST slot 6,
-    # which is where it sits. All unset = the slots are never touched, which
-    # is the shipped state -- see FISH_SLOT_COUNT for why nothing is guessed.
+    # next slot describes all six. All unset = the slots are never touched,
+    # which is the shipped state -- see FISH_SLOT_COUNT for why nothing is
+    # guessed.
     "fish_slot_x": None, "fish_slot_y": None, "fish_slot_step": None,
-    # Optional override for the bin. None = Auto: slot 1 + FISH_SLOT_COUNT
-    # steps. Set it when the bin is not exactly one slot-width past slot 6.
-    "fish_trash_x": None, "fish_trash_y": None,
     "screen_middle_x": SCREEN_MIDDLE_CLICK[0], "screen_middle_y": SCREEN_MIDDLE_CLICK[1],
     "unit_info_reset_x": UNIT_INFO_RESET_CLICK[0], "unit_info_reset_y": UNIT_INFO_RESET_CLICK[1],
     "daily_challenge_tab_x": 250, "daily_challenge_tab_y": 315,

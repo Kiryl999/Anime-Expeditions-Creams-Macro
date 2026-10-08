@@ -3279,7 +3279,7 @@ function renderTaskBuilder() {
     ${infiniteHint}
     ${bossRushHint}
     ${monsterClashHint}
-    ${t.fishing ? `<div class="wh-hint">Auto Fishing casts at the Water Point while the round runs, and stops when it ends. It does not move your character -- park it at the water with a Walk Path block in the Macro Operation, which also re-runs after a Challenge interleave. Needs <code>fishing_rod</code> and <code>fishing_xp</code> crops (Settings &gt; General &gt; Image Manager). A catch lands in the 6 fish slots and pays nothing until it is dealt with: add a crop per fish to <code>wanted_fish</code> (clicked once to cash in) and <code>unwanted_fish</code> (dragged to the bin). Pick the slot row once under Settings &gt; Debug &gt; Macro Coordinates &gt; Fish Slots. Without that, or with the folders empty, the slots are left alone.</div>` : ''}
+    ${t.fishing ? `<div class="wh-hint">Auto Fishing casts at the Water Point while the round runs, and stops when it ends. It does not move your character -- park it at the water with a Walk Path block in the Macro Operation, which also re-runs after a Challenge interleave. Needs <code>fishing_rod</code> and <code>fishing_xp</code> crops (Settings &gt; General &gt; Image Manager). A catch lands in the 6 fish slots and pays nothing until it is dealt with: add a crop per fish to <code>wanted_fish</code> (clicked once to cash in). Every other fish is left in its slot; a crop in <code>unwanted_fish</code> keeps a fish from being clicked even if it looks like a wanted one. Pick the slot row once under Settings &gt; Debug &gt; Macro Coordinates &gt; Fish Slots. Without that, or with <code>wanted_fish</code> empty, the slots are left alone.</div>` : ''}
     <div class="wh-hint" style="margin-top: 8px;">The macro's Team Loadout comes from its template (Macro Manager tab).</div>
     <div class="flex items-center gap-2" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
       <button class="task-toolbar-btn add" onclick="cloneTaskCard('${t.id}')">&#10697; Clone Task</button>
@@ -4898,7 +4898,6 @@ const MACRO_COORD_KEYS = [
   'team_loadout_x', 'team_loadout_y', 'team_loadout_row_height',
   'team_button_x', 'team_button_y',
   'fish_slot_x', 'fish_slot_y', 'fish_slot_step',
-  'fish_trash_x', 'fish_trash_y',
   'portal_search_x', 'portal_search_y',
   'portal_list_x', 'portal_list_y', 'portal_list_w', 'portal_list_h',
   'screen_middle_x', 'screen_middle_y',
@@ -6511,16 +6510,14 @@ function applyPlaceUnitPosition() {
       if (hEl) hEl.value = h;
       saveMacroCoords({ [puState.coordHeightKey]: h });
       // Preview every derived position so the math is visible before you
-      // trust it. A slot row has exactly 6, and the 7th mark is the bin the
-      // unwanted fish get dragged onto -- the one derived point that is not
-      // a slot, and the one worth seeing before a drag aims at it.
+      // trust it. A slot row has exactly 6.
       const rows = [];
-      const count = puState.coordAcross ? FISH_SLOT_COUNT + 1 : 7;
+      const count = puState.coordAcross ? FISH_SLOT_COUNT : 7;
       for (let i = 0; i < count; i++) {
         rows.push({
           x: puState.coordFirst.x + (puState.coordAcross ? i * h : 0),
           y: puState.coordFirst.y + (puState.coordAcross ? 0 : i * h),
-          label: (puState.coordAcross && i === FISH_SLOT_COUNT) ? 'Bin' : `${i + 1}`,
+          label: `${i + 1}`,
         });
       }
       puState.coordPreview = rows;
