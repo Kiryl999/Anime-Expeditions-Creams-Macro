@@ -275,8 +275,11 @@ instead of the Story map list, and it cannot be switched on until one is
 assigned. Its way there uses two crops that ship with the macro,
 `world_boss_ancient_one` (the World Boss entry in the Events menu) and
 `world_boss_enter_encounter` (the Enter Encounter button); if one does not match
-on your setup, add another crop under the same name in the Image Manager. One try per hour is all it gets: a win, a
-loss or an entry that fails all rest it until the next full hour.
+on your setup, add another crop under the same name in the Image Manager. A win,
+a loss or leaving early ends the hour's play. A try that fails on the way --
+say a click in the Events menu that does not register -- goes back to the lobby
+and tries again, up to 3 tries, as long as it is still before :09; after that
+it rests until the next full hour.
 
 ## 6. Start and monitor a run
 

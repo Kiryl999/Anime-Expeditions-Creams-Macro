@@ -648,6 +648,11 @@ WORLD_BOSS_MAP = "Ancient One"
 # lobby, the Events menu -- still lands inside those 10 minutes; an hour not
 # played by then counts as closed (see main.Api.get_challenge_settings).
 WORLD_BOSS_SET_OUT_SECONDS = 9 * 60
+# Tries per hour. One that never got in or failed on the way (a click on the
+# Events menu that didn't register, say) goes back to the lobby and goes in
+# again -- while the hour's window is still open; a win, loss or Leave at
+# Minute ends the hour's play.
+WORLD_BOSS_ATTEMPTS = 3
 
 # Monster Clash (a Task Builder mode, the Events menu's Battle Event): clicked
 # in this order after the lobby's Events button (nav_event), then the shared

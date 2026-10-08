@@ -287,6 +287,8 @@ def _pass_probe(settings, outcome):
     probe._run_one_challenge_stage = lambda _hwnd, _stop, slot, *_a: probe.order.append(slot) or "win"
     probe._mark_challenge_stage_played = lambda stage, *_a: probe.marked.append(stage)
     probe._recover_failed_challenge = lambda *_a: probe.recovered.append(True) or True
+    probe._run_world_boss_hour = lambda *a: ChallengeOps._run_world_boss_hour(probe, *a)
+    probe._world_boss_still_due = lambda: ChallengeOps._world_boss_still_due(probe)
     return probe
 
 
@@ -305,16 +307,66 @@ def test_the_world_boss_runs_after_daily_and_before_the_regular_slots():
     assert probe.marked == ["daily", "world_boss", "1"]
 
 
-@pytest.mark.parametrize("outcome", ["win", "loss", "left", None])
-def test_the_world_boss_rests_until_the_next_hour_whatever_came_of_it(outcome):
-    """One try an hour: a failed entry is not retried at every repeat
-    boundary either -- that would pull the task out of its stage each time."""
+@pytest.mark.parametrize("outcome", ["win", "loss", "left"])
+def test_a_played_world_boss_rests_until_the_next_hour(outcome):
     probe = _pass_probe(_boss_settings(), outcome)
 
     ChallengeOps._run_challenges(probe, 123, threading.Event(), {}, {}, {})
 
+    assert probe.order == ["world_boss"]
     assert probe.marked == ["world_boss"]
-    assert probe.recovered == ([True] if outcome is None else [])
+    assert probe.recovered == []
+
+
+def test_a_failed_world_boss_goes_back_to_the_lobby_and_tries_again():
+    """A click in the Events menu that didn't register must not cost the hour."""
+    probe = _pass_probe(_boss_settings(), None)
+    outcomes = iter([None, "win"])
+    probe._run_one_world_boss = lambda *_a: probe.order.append("world_boss") or next(outcomes)
+
+    ChallengeOps._run_challenges(probe, 123, threading.Event(), {}, {}, {})
+
+    assert probe.order == ["world_boss", "world_boss"]
+    assert probe.recovered == [True]
+    assert probe.marked == ["world_boss"]
+
+
+def test_the_world_boss_gives_up_for_the_hour_after_its_last_try():
+    """And then rests: left ready, it would pull the task out of its stage
+    at every repeat boundary until the hour ends."""
+    from core.runner_constants import WORLD_BOSS_ATTEMPTS
+
+    probe = _pass_probe(_boss_settings(), None)
+
+    ChallengeOps._run_challenges(probe, 123, threading.Event(), {}, {}, {})
+
+    assert probe.order == ["world_boss"] * WORLD_BOSS_ATTEMPTS
+    assert probe.recovered == [True] * WORLD_BOSS_ATTEMPTS
+    assert probe.marked == ["world_boss"]
+
+
+def test_a_failed_world_boss_is_not_retried_once_its_window_closed():
+    settings = _boss_settings()
+    probe = _pass_probe(settings, None)
+    # Past :09 by the time it is back in the lobby.
+    probe._recover_failed_challenge = lambda *_a: settings["world_boss"].update(ready=False) or True
+
+    ChallengeOps._run_challenges(probe, 123, threading.Event(), {}, {}, {})
+
+    assert probe.order == ["world_boss"]
+    assert probe.marked == ["world_boss"]
+
+
+def test_a_world_boss_that_cannot_get_back_to_the_lobby_ends_the_pass():
+    settings = {**_boss_settings(), "enabled": True,
+                "stages": {"1": {"enabled": True, "ready": True, "count": 0}}}
+    probe = _pass_probe(settings, None)
+    probe._recover_failed_challenge = lambda *_a: False
+
+    ChallengeOps._run_challenges(probe, 123, threading.Event(), {}, {}, {})
+
+    assert probe.order == ["world_boss"]
+    assert probe.marked == ["world_boss"]
 
 
 def test_a_world_boss_missing_its_setup_is_skipped_with_the_reason():

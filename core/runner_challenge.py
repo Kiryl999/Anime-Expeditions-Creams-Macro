@@ -194,19 +194,8 @@ class ChallengeOps:
             if boss.get("setup_problems"):
                 self._log(f"[Macro] World Boss is enabled but can't run yet -- "
                           f"{'; '.join(boss['setup_problems'])}.")
-            else:
-                result = self._run_one_world_boss(hwnd, stop_event, boss, coords, default_walk_paths, webhook)
-                if self._checkpoint(stop_event):
-                    return
-                # The hour's one attempt, whatever came of it. A failed entry
-                # rests too: retried at every repeat boundary, it would pull
-                # the task out of its stage over and over until the hour ends.
-                self._mark_challenge_stage_played("world_boss")
-                if result is None:
-                    self._log("[Macro] World Boss didn't complete cleanly -- recovering to the lobby. "
-                              "Next try after the full hour.")
-                    if not self._recover_failed_challenge(hwnd, stop_event):
-                        return
+            elif not self._run_world_boss_hour(hwnd, stop_event, boss, coords, default_walk_paths, webhook):
+                return
 
         # Daily can be enabled independently of the rotating Regular slots.
         if not challenge.get("enabled"):
@@ -279,6 +268,51 @@ class ChallengeOps:
         Macro Operation -- see main.Api._world_boss_setup)."""
         boss = challenge.get("world_boss") or {}
         return bool(boss.get("enabled") and boss.get("ready") and not boss.get("setup_problems"))
+
+    def _run_world_boss_hour(self, hwnd, stop_event: threading.Event, boss: dict, coords: dict,
+                             default_walk_paths: dict, webhook: dict) -> bool:
+        """The hour's World Boss: up to WORLD_BOSS_ATTEMPTS tries, each from
+        the lobby. A try that didn't complete cleanly is recovered and tried
+        again while the hour's entry window is still open; a win, loss or
+        Leave at Minute ends it. Then it rests until the next full hour,
+        whatever came of it -- left ready, it would pull the task out of its
+        stage at every repeat boundary until the hour ends. A stop does not
+        use up the hour.
+
+        Returns False when the Challenge pass ends here: stopped, or a
+        recovery that never got back to the lobby."""
+        for attempt in range(1, WORLD_BOSS_ATTEMPTS + 1):
+            if attempt > 1:
+                self._log(f"[Macro] Retrying the World Boss from the lobby "
+                          f"(attempt {attempt}/{WORLD_BOSS_ATTEMPTS})...")
+            result = self._run_one_world_boss(hwnd, stop_event, boss, coords, default_walk_paths, webhook)
+            if self._checkpoint(stop_event):
+                return False
+            if result is not None:
+                break
+            self._log("[Macro] World Boss didn't complete cleanly -- recovering to the lobby.")
+            recovered = self._recover_failed_challenge(hwnd, stop_event)
+            if self._checkpoint(stop_event):
+                return False
+            if not recovered:
+                self._mark_challenge_stage_played("world_boss")
+                return False
+            if attempt == WORLD_BOSS_ATTEMPTS:
+                self._log(f"[Macro] World Boss failed {WORLD_BOSS_ATTEMPTS} times -- "
+                          "next try after the full hour.")
+            elif not self._world_boss_still_due():
+                self._log("[Macro] World Boss entry window has closed -- next try after the full hour.")
+                break
+        self._mark_challenge_stage_played("world_boss")
+        return True
+
+    def _world_boss_still_due(self) -> bool:
+        """_world_boss_due on fresh settings -- whether a retry still makes
+        it inside :00-:09, and the World Boss is still switched on."""
+        try:
+            return ChallengeOps._world_boss_due(self._get_challenge_settings())
+        except Exception:
+            return False
 
     def _run_one_world_boss(self, hwnd, stop_event: threading.Event, boss: dict, coords: dict,
                             default_walk_paths: dict, webhook: dict) -> str:
