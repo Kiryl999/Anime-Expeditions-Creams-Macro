@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.21] - 2026-10-08
+
+### Changed
+- **Unwanted fish are left alone**: in Tidal Siege the macro no longer drags unwanted fish onto the bin. A fish in `unwanted_fish` is now never clicked and never moved, and a wanted fish still gets a single click to cash it in. Once all six slots are full, the game cashes every fish in by itself. The `unwanted_fish` crops still matter: a fish that matches one is never clicked, even if it also looks like a wanted fish. The folder may also stay empty -- then every wanted fish is clicked. The **Fish Bin** setting under Settings > Debug > Macro Coordinates is gone, as there is nothing to drag there anymore.
+
 ## [0.21.20] - 2026-10-08
 
 ### Fixed
