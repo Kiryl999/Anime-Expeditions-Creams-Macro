@@ -2,6 +2,12 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.20] - 2026-10-08
+
+### Fixed
+- **The World Boss tries again when it can't get in**: one click in the Events menu that did not register -- seen over Remote Desktop -- used to cost the whole hour, as the failed entry counted as that hour's try. A try that does not get in, or fails on the way, now goes back to the lobby and tries again, up to 3 tries in all, as long as it is still before :09. A win, a loss or leaving early still ends the hour, and after the third failed try the World Boss rests until the next full hour.
+- **Start Game is no longer clicked a second time after the round has started**: over Remote Desktop the Start Game button can still show for a moment after a click that worked. The macro looked once, a second after the click, and clicked again -- and that click landed on whatever sat where the button had been. In a portal round that was Auto Play, which got switched straight back off. Start Game is now watched for up to 3 seconds after a click and only clicked again if it is still sitting in the same spot, and it is never clicked at a spot it has already left. A click that really did not register is still retried, just after 3 seconds instead of 1.
+
 ## [0.21.19] - 2026-10-07
 
 ### New
