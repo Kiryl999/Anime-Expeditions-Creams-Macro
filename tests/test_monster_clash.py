@@ -4,8 +4,9 @@ Events > Monster Clash > Play Event > Play - Choose Stage > Select Stage >
 Start, then the usual Pre Start and battle. Now and then a cleared map spawns
 a helicopter instead of the Victory screen -- only the Game Results button
 shows. About 15s later E boards it, and the second map it flies to starts
-empty: Pre Start again, Start Game, fight. Either map's result screen only
-leads back to the lobby, so each repeat goes in through the Events menu again.
+empty: Pre Start again, Start Game, fight. The first map's result screen has
+Repeat Stage; the helicopter's map has only Leave, so after it the next repeat
+goes in through the Events menu again.
 """
 import json
 import os
@@ -222,6 +223,26 @@ def test_a_helicopter_that_cannot_be_boarded_abandons_the_run():
     assert runner.prestarts == [("Map", True)]
 
 
+def test_a_run_that_went_on_by_helicopter_is_reported_as_one():
+    runner = _run_runner(["helicopter", "win", "win"])
+
+    runner._play_monster_clash_run(1, threading.Event(), _TASK, {}, first_repeat=True)
+    assert runner._monster_clash_report_task(_TASK)["map"] == "Monster Clash (Helicopter)"
+    assert _TASK["map"] == "Monster Clash", "the task itself keeps its name"
+
+    # The next run starts over: no helicopter, no suffix.
+    runner._play_monster_clash_run(1, threading.Event(), _TASK, {}, first_repeat=False)
+    assert runner._monster_clash_report_task(_TASK)["map"] == "Monster Clash"
+
+
+def test_other_modes_are_never_reported_as_a_helicopter_run():
+    runner = _macro_runner()
+    runner._monster_clash_took_helicopter = True
+    task = {"mode": "story", "map": "Leaf Village"}
+
+    assert runner._monster_clash_report_task(task) is task
+
+
 # ---------------------------------------------------------------------------
 # Boarding
 # ---------------------------------------------------------------------------
@@ -315,32 +336,69 @@ def test_other_modes_never_read_game_results_as_a_helicopter(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Back to the lobby after every run
+# Repeat Stage -- or back to the lobby after the helicopter
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("task, in_place", [
     ({"mode": "story", "play_mode": "solo"}, True),
     ({"mode": "story", "play_mode": "matchmaking"}, False),
-    ({"mode": "monster_clash", "play_mode": "solo"}, False),
+    ({"mode": "monster_clash", "play_mode": "solo"}, True),
 ])
-def test_only_monster_clash_and_matchmaking_go_back_through_the_lobby(task, in_place):
+def test_only_matchmaking_always_goes_back_through_the_lobby(task, in_place):
     assert MacroRunner._repeats_in_place(task) is in_place
 
 
-def test_a_monster_clash_result_screen_is_left_even_with_repeats_to_go(monkeypatch):
+@pytest.mark.parametrize("took_helicopter, in_place", [(False, True), (True, False)])
+def test_the_next_run_goes_in_through_the_events_menu_only_after_the_helicopter(took_helicopter, in_place):
     runner = _macro_runner()
-    clicked = []
-    runner._click_and_verify_gone = lambda hwnd, stop, name, timeout, **k: clicked.append(name) or True
+    runner._monster_clash_took_helicopter = took_helicopter
+
+    assert runner._next_repeat_in_place(dict(_TASK, play_mode="solo")) is in_place
+    # Another mode is never held to a Monster Clash run's helicopter.
+    assert runner._next_repeat_in_place({"mode": "story", "play_mode": "solo"}) is True
+
+
+def _result_screen_runner(monkeypatch, took_helicopter):
+    runner = _macro_runner()
+    runner._monster_clash_took_helicopter = took_helicopter
+    runner.clicked = []
+    runner._click_and_verify_gone = lambda hwnd, stop, name, timeout, **k: runner.clicked.append(name) or True
+    runner._wait_for_image_gone = lambda *_a: True
     runner._click_return_to_lobby_if_found = lambda *_a: True
     runner._dismiss_reward_card_if_found = lambda _hwnd: False
     runner._clear_result_obtainment_modal = lambda *_a: True
     runner._finish_match_result_background = lambda *_a: None
     monkeypatch.setattr(runner_module.time, "sleep", lambda _s: None)
     monkeypatch.setattr(runner_module.wm, "get_window_rect_screen", lambda _hwnd: (0, 0, 1152, 756))
+    return runner
+
+
+@pytest.mark.parametrize("took_helicopter, button", [(False, "repeat_stage"), (True, "leave_stage")])
+def test_a_run_repeats_the_stage_unless_the_helicopter_took_it_on(monkeypatch, took_helicopter, button):
+    runner = _result_screen_runner(monkeypatch, took_helicopter)
 
     assert runner._handle_match_result(1, threading.Event(), dict(_TASK, play_mode="solo"), "win",
                                        "5m", None, repeat=True) is True
-    assert clicked == ["leave_stage"]
+    # The helicopter's map has no Repeat Stage -- only Leave.
+    assert runner.clicked == [button]
+
+
+@pytest.mark.parametrize("took_helicopter, shown", [(True, "Monster Clash (Helicopter)"),
+                                                    (False, "Monster Clash")])
+def test_the_run_history_tells_a_helicopter_run_apart(monkeypatch, took_helicopter, shown):
+    runner = _result_screen_runner(monkeypatch, took_helicopter)
+    reported = []
+    done = threading.Event()
+    # Reporting runs on its own thread -- see _handle_match_result.
+    runner._finish_match_result_background = lambda _result, map_name, _duration, task, *_a: (
+        reported.append((map_name, task["map"])), done.set())
+
+    runner._handle_match_result(1, threading.Event(), dict(_TASK, play_mode="solo"), "win",
+                                "9m", None, repeat=False)
+
+    assert done.wait(5)
+    # The history row and the result webhook both get the name.
+    assert reported == [(shown, shown)]
 
 
 # ---------------------------------------------------------------------------

@@ -235,8 +235,13 @@ helicopter instead of the Victory screen -- all that shows is the **Game
 Results** button. The macro then waits about 15 seconds, presses E to board it,
 and plays the second map it flies to, placing the units again with the task's
 **Macro Operation (Helicopter)** ("Same as above" reuses the first one). One
-repeat is one such run. Either map's result screen only leads back to the
-lobby, so every repeat goes in through the Events menu again. The crops for
+repeat is one such run. A run that ends on the first map repeats with
+**Repeat Stage**, like any Solo stage. The helicopter's map has no Repeat
+Stage, only Leave, so after it the next repeat goes in through the Events menu
+again. Each run is one
+row in the run history, named after the last map's result: **Monster Clash**,
+or **Monster Clash (Helicopter)** when the run went on by helicopter -- the
+result webhook uses the same name. The crops for
 the way in ship with the macro -- `monster_clash` (the entry in the Events
 menu), `monster_clash_play_event` and `monster_clash_choose_stage`; if one does
 not match on your setup, add another crop under the same name in the Image

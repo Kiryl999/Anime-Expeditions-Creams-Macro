@@ -9,9 +9,10 @@ second map that starts empty -- Pre Start again (the task's Helicopter Macro
 Operation, or the same one), Start Game, fight.
 
 One repeat is one RUN, one map or two, the shape Boss Rush has (see
-core/runner_boss_rush.py). Either map's result screen only leads back to the
-lobby, so every repeat goes in through the Events menu again (see
-MacroRunner._repeats_in_place).
+core/runner_boss_rush.py). The first map's result screen has Repeat Stage, so
+a run that ended there repeats in place like any Solo stage. The helicopter's
+map has only Leave: after it the next repeat goes in through the Events menu
+again (see MacroRunner._next_repeat_in_place).
 
 Split out of core/runner.py like the other *Ops classes -- see core/runner.py,
 which composes the mixins (MacroRunner). Methods here run with MacroRunner's
@@ -33,6 +34,19 @@ class MonsterClashOps:
         Operation when one is set, otherwise the first map's."""
         macro = str(task.get("helicopter_macro") or "").strip()
         return dict(task, macro=macro) if macro else dict(task)
+
+    def _monster_clash_run_took_helicopter(self, task: dict) -> bool:
+        """Whether the Monster Clash run that just ended went on by
+        helicopter. Its result screen then has no Repeat Stage, only Leave."""
+        return task.get("mode") == "monster_clash" and getattr(self, "_monster_clash_took_helicopter", False)
+
+    def _monster_clash_report_task(self, task: dict) -> dict:
+        """The task as a run's result is reported -- run history and result
+        webhook. A run that went on by helicopter shows as "Monster Clash
+        (Helicopter)", so the two kinds of run can be told apart there."""
+        if not self._monster_clash_run_took_helicopter(task):
+            return task
+        return dict(task, map=f"{task.get('map') or MONSTER_CLASH_MAP} (Helicopter)")
 
     def _monster_clash_preflight(self, task: dict) -> bool:
         """Whether the crops the way in needs are on disk.
@@ -98,6 +112,7 @@ class MonsterClashOps:
         result screen, "left", or None on failure/stop -- so _run_task's
         repeat, result and recovery handling apply unchanged.
         """
+        self._monster_clash_took_helicopter = False
         if not self._run_prestart(hwnd, stop_event, task, default_walk_paths, first_repeat):
             return None
         if self._checkpoint(stop_event):
@@ -114,6 +129,7 @@ class MonsterClashOps:
             self._wants_close_popup_watch(task), webhook, task, watch_helicopter=True)
         if result != "helicopter":
             return result
+        self._monster_clash_took_helicopter = True
         if not self._board_monster_clash_helicopter(hwnd, stop_event):
             return None
         return self._fight_monster_clash_helicopter_map(hwnd, stop_event, task, default_walk_paths, webhook)

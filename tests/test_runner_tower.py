@@ -95,6 +95,9 @@ class MatchResultProbe:
         return None
 
     _repeats_in_place = staticmethod(MacroRunner._repeats_in_place)
+    _next_repeat_in_place = MacroRunner._next_repeat_in_place
+    _monster_clash_run_took_helicopter = MacroRunner._monster_clash_run_took_helicopter
+    _monster_clash_report_task = MacroRunner._monster_clash_report_task
 
     def _set_status(self, **kwargs):
         self.statuses.append(kwargs)

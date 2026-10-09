@@ -1856,12 +1856,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                     continue
 
                 if not is_last_repeat:
-                    if left_live_match or not self._repeats_in_place(task):
+                    if left_live_match or not self._next_repeat_in_place(task):
                         # Leave Stage (see _handle_match_result -- matchmaking
-                        # and Monster Clash always leave, never Repeat Stage),
-                        # or the Infinite wave-limit exit, puts us back in the
-                        # lobby rather than a repeat teleport -- re-enter from
-                        # scratch.
+                        # and a Monster Clash run that took the helicopter
+                        # always leave, never Repeat Stage), or the Infinite
+                        # wave-limit exit, puts us back in the lobby rather
+                        # than a repeat teleport -- re-enter from scratch.
                         if not self._run_task_setup(hwnd, stop_event, task, mode, map_name, coords,
                                                       scroll_power, scroll_nudges, webhook):
                             if stop_event.is_set():
@@ -2397,11 +2397,17 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
     @staticmethod
     def _repeats_in_place(task: dict) -> bool:
-        """Whether the next repeat starts from this one's result screen
+        """Whether the task's repeats start from the last one's result screen
         (Repeat Stage) rather than going back in through the lobby. Never
-        under Matchmaking, and never in Monster Clash -- see
-        _handle_match_result."""
-        return task.get("play_mode") != "matchmaking" and task.get("mode") != "monster_clash"
+        under Matchmaking -- see _handle_match_result."""
+        return task.get("play_mode") != "matchmaking"
+
+    def _next_repeat_in_place(self, task: dict) -> bool:
+        """_repeats_in_place for the run that just ended. A Monster Clash run
+        that went on by helicopter ends on a result screen with only Leave,
+        so the next repeat goes back in through the Events menu (see
+        MonsterClashOps)."""
+        return self._repeats_in_place(task) and not self._monster_clash_run_took_helicopter(task)
 
     @staticmethod
     def _wants_portal_offer_watch(task: dict) -> bool:
@@ -3015,10 +3021,13 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if webhook and webhook.get("enabled") and webhook.get("url"):
                 result_screenshot = self._capture_result_screenshot(hwnd)
 
-        map_name = task.get("map") or "-"
+        # A Monster Clash run that went on by helicopter is reported as
+        # "Monster Clash (Helicopter)" (see MonsterClashOps).
+        report_task = self._monster_clash_report_task(task)
+        map_name = report_task.get("map") or "-"
         threading.Thread(
             target=self._finish_match_result_background,
-            args=(result, map_name, duration, task, webhook, result_screenshot),
+            args=(result, map_name, duration, report_task, webhook, result_screenshot),
             daemon=True,
         ).start()
         self._log(f"[Macro] {label} ({duration}) -- reporting in the background.")
@@ -3072,9 +3081,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # and go through Enter Matchmaking again from the lobby (see
         # _run_task's repeat loop, which re-runs _run_task_setup instead of
         # _wait_teleport_in whenever this is why it's about to see Leave
-        # Stage clicked with more repeats still left). Monster Clash leaves
-        # too: its result screens only lead back to the lobby.
-        if repeat and self._repeats_in_place(task):
+        # Stage clicked with more repeats still left). A Monster Clash run
+        # that went on by helicopter leaves too: that map's result screen has
+        # no Repeat Stage. Without the helicopter it repeats like any stage.
+        if repeat and self._next_repeat_in_place(task):
             # More repeats left on this task -- Repeat Stage re-queues the
             # same stage directly, skipping the lobby/gamemode/map/stage
             # picks entirely (see _run_task_setup, which only runs once per
