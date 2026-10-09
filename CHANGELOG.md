@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.24] - 2026-10-09
+
+### New
+- **Secret units in portal rounds**: some portal rounds drop a secret unit once won, and then the round does not end on the three-portal offer but on a cutscene. A Portals task now looks for its **Skip Cutscene** button every 2 seconds and clicks it once. After that only a **Game Results** button is left, which the macro clicks right away to open the Victory screen. With repeats left, it presses **Select Portal** there and picks the task's portal by its Portal Name, the same way it is picked from the lobby; on the last repeat it leaves the round as from any result screen. Which portals can drop a secret unit does not matter -- every Portals task watches for it, and a round without one goes on through the offer as before. The `skip_cutscene` crop ships with the macro; if it does not match on your setup, add another under that name in the Image Manager.
+
 ## [0.21.23] - 2026-10-09
 
 ### Changed
