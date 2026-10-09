@@ -1,7 +1,8 @@
 """Portal picker: search the task's portal name, click the card, confirm.
-Reached from the lobby (Inventory > Portals tab) -- a won round no longer
-comes back to it, see test_portal_offer. Plus how a portal's stage screen is
-entered afterwards."""
+Reached from the lobby (Inventory > Portals tab), and from the Victory
+screen's Select Portal after a round with a secret-unit reveal -- every other
+won round goes on via the offer, see test_portal_offer. Plus how a portal's
+stage screen is entered afterwards."""
 
 import threading
 
@@ -62,6 +63,24 @@ def test_the_picker_searches_then_confirms(monkeypatch):
     images = [call[1] for call in runner.clicked if call[0] == "image"]
     assert images == ["portal_search", "portal_activate"]
     assert runner.typed == ["summer"]
+
+
+def test_select_portal_on_the_victory_screen_opens_the_same_picker(monkeypatch):
+    runner = _runner()
+    monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
+    assert runner._select_portal_post_victory(1, threading.Event(), "summer") is True
+    images = [call[1] for call in runner.clicked if call[0] == "image"]
+    assert images == ["select_new_portal", "portal_search", "portal_activate"]
+    assert runner.typed == ["summer"]
+
+
+def test_a_victory_screen_without_select_portal_backs_out(monkeypatch):
+    runner = _runner()
+    runner._click_found_image = lambda hwnd, name, timeout, stop_event, **k: None
+    monkeypatch.setattr(runner_module.time, "sleep", lambda s: None)
+    assert runner._select_portal_post_victory(1, threading.Event(), "summer") is False
+    assert runner.backs == [1]
+    assert runner.typed == []
 
 
 def test_the_name_is_typed_before_any_card_is_looked_for(monkeypatch):

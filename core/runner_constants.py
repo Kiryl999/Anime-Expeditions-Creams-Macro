@@ -361,6 +361,20 @@ CLOSE_POPUP_RAID_STAGE = "3"
 # already waits MATCH_RESULT_POLL_INTERVAL between ticks.
 CLOSE_POPUP_VERIFY_DELAY = 0.45
 
+# The "Skip Cutscene" button of a secret-unit reveal, which some portal rounds
+# drop (runner._click_skip_cutscene_if_found). Not every portal can, and the
+# round can be any portal the offer led to, so a Portals task always watches
+# for it -- a look every this many seconds rather than every poll tick: the
+# reveal waits for the click, and a second or two costs nothing.
+SKIP_CUTSCENE_IMAGE = "skip_cutscene"
+SKIP_CUTSCENE_LOOK_INTERVAL = 2.0
+# Such a round has won, but ends without the three-portal offer: once the
+# reveal is skipped, only a "Game Results" button (GAME_RESULTS_IMAGE) is
+# left, and it opens the Victory screen. It is clicked as soon as it shows --
+# not after GAME_RESULTS_GRACE, which only exists to sit out the offer --
+# looked for on the whole window for this long after the skip.
+SKIP_CUTSCENE_RESULTS_WINDOW = 30.0
+
 # A won portal round ends on three NEW portals, offered for about 20s. Left
 # alone the timer runs out and the game picks one at random, so the choice is
 # watched for from inside the match poll loop.

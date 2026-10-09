@@ -707,6 +707,63 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                                   top + self._coords["screen_middle_y"])
         return True
 
+    def _click_skip_cutscene_if_found(self, hwnd) -> bool:
+        """Click "Skip Cutscene" when a secret-unit reveal put it up.
+
+        Some portal rounds can drop a secret unit, and its reveal plays a
+        cutscene over the screen once the round is won. One click on Skip
+        Cutscene ends it; what is left then is a lone Game Results button
+        (see _open_results_after_reveal). Focus and a hover-in click, as for
+        the close panel above. Not verified: a click that did not register
+        is clicked again on the next look (SKIP_CUTSCENE_LOOK_INTERVAL).
+
+        Returns whether the button was seen. Quiet while its crop folder
+        (Assets/ui/skip_cutscene/) holds no image.
+        """
+        try:
+            match = vision.find_image(hwnd, SKIP_CUTSCENE_IMAGE)
+        except vision.TemplateNotFound:
+            return False
+        if match is None:
+            return False
+        debug_path = self._debug_save(hwnd, SKIP_CUTSCENE_IMAGE, match)
+        suffix = f" Debug: {debug_path}" if debug_path else ""
+        self._log(f'[Macro] Found "Skip Cutscene" (score {match["score"]:.2f}) -- clicking it.{suffix}')
+        if not wm.activate_window(hwnd):
+            self._log("[Macro] Couldn't confirm focus before skipping the cutscene -- "
+                      "the click may not register.")
+        vision.click_match(self._mouse, hwnd, match, shuffle=True)
+        return True
+
+    def _open_results_after_reveal(self, hwnd, results_state: dict) -> bool:
+        """Click the lone Game Results button a skipped secret-unit reveal
+        leaves, which opens the round's Victory screen.
+
+        Unlike _reopen_game_results, right away: that one waits out
+        GAME_RESULTS_GRACE because the button also sits under the
+        three-portal offer, and a round with a reveal has no offer. Searched
+        on the whole window, not GAME_RESULTS_REGION -- this is only looked
+        for briefly after a skip. Shares results_state with that check, so
+        the two never click it twice and the poll loop holds its other
+        clicks off while the panel animates in. Returns whether it clicked.
+        """
+        try:
+            match = vision.find_image(hwnd, GAME_RESULTS_IMAGE)
+        except vision.TemplateNotFound:
+            return False
+        if match is None:
+            return False
+        self._log(f'[Macro] Secret unit skipped -- opening the result screen with "Game Results" '
+                  f'(score {match["score"]:.2f}).')
+        if not wm.activate_window(hwnd):
+            self._log("[Macro] Couldn't confirm focus before clicking Game Results -- "
+                      "the click may not register.")
+        vision.click_match(self._mouse, hwnd, match, shuffle=True)
+        now = time.time()
+        results_state["clicked_at"] = now
+        results_state["seen_since"] = now
+        return True
+
     def _dismiss_reward_card_if_found(self, hwnd) -> bool:
         """A level-up "Select an upgrade!" reward-card modal can show up at
         several different moments in Expedition -- mid-battle right on top
@@ -2418,6 +2475,14 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         return task.get("mode") == "portals"
 
     @staticmethod
+    def _wants_skip_cutscene_watch(task: dict) -> bool:
+        """Whether the poll loop watches for a secret-unit reveal's Skip
+        Cutscene. Every Portals task: which portals can drop a secret unit is
+        not known, and the offer can lead to any of them -- see
+        SKIP_CUTSCENE_LOOK_INTERVAL for what the watch costs."""
+        return task.get("mode") == "portals"
+
+    @staticmethod
     def _wants_close_popup_watch(task: dict) -> bool:
         """Whether this task can hit a full-screen "Click anywhere to close"
         panel mid-battle, so the poll loop should watch for one.
@@ -2658,6 +2723,13 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         map spawned one (see MonsterClashOps)."""
         self._log("[Macro] Battle in progress -- watching for Victory/Defeat...")
         watch_portal_offer = self._wants_portal_offer_watch(task or {})
+        watch_skip_cutscene = self._wants_skip_cutscene_watch(task or {})
+        skip_cutscene_looked_at = 0.0
+        cutscene_skipped_at = 0.0
+        # Set when a portal round ends on the Victory screen instead of the
+        # offer -- read by _handle_match_result, which then has a result
+        # screen to deal with (Select Portal / Leave).
+        self._portal_victory_screen = False
         # Resolved once per match, not per poll tick: the lookup logs which
         # card it settled on when the task's field is unset, and that belongs
         # in the log once, not several times a second.
@@ -2817,6 +2889,17 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 clicked_something = True
             if watch_close_popup:
                 clicked_something = self._click_close_popup_if_found(hwnd) or clicked_something
+            if watch_skip_cutscene and time.time() - skip_cutscene_looked_at >= SKIP_CUTSCENE_LOOK_INTERVAL:
+                skip_cutscene_looked_at = time.time()
+                if self._click_skip_cutscene_if_found(hwnd):
+                    cutscene_skipped_at = skip_cutscene_looked_at
+                    clicked_something = True
+            # A skipped reveal leaves no offer, only Game Results -- opened
+            # right away (see _open_results_after_reveal). Not on the tick of
+            # a click, and the click cooldown above spaces out retries.
+            if (cutscene_skipped_at and not clicked_something
+                    and time.time() - cutscene_skipped_at < SKIP_CUTSCENE_RESULTS_WINDOW):
+                clicked_something = self._open_results_after_reveal(hwnd, results_state)
 
             # Auto Play back on if it went off -- only on a tick nothing else
             # clicked on, for the same reason as the fishing cast below, and a
@@ -2892,6 +2975,11 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 return None
             if victory_match is not None:
                 self._log(f"[Macro] Victory! (score {victory_match['score']:.2f})")
+                # A won portal round normally ends on the offer, taken above.
+                # One whose secret-unit reveal was skipped ends on this
+                # Victory screen instead, with Select Portal on it. Tied to
+                # the skip, so every other portal win keeps the offer's path.
+                self._portal_victory_screen = watch_portal_offer and bool(cutscene_skipped_at)
                 return "win"
             try:
                 defeat_match = vision.find_image(hwnd, "defeat")
@@ -3000,8 +3088,12 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # A won portal round has no result screen: it ended on the
         # three-portal offer, and the taken portal's round is already on its
         # way (see PortalsOp._carry_on_after_portal_win). Nothing to wait for
-        # or capture -- only the reporting below is the same.
-        portal_won = result == "win" and task.get("mode") == "portals"
+        # or capture -- only the reporting below is the same. The exception is
+        # a round with a secret-unit reveal: it ended on the Victory screen
+        # (see _wait_for_match_result), which is handled like any other.
+        portal_victory_screen = (result == "win" and task.get("mode") == "portals"
+                                 and getattr(self, "_portal_victory_screen", False))
+        portal_won = result == "win" and task.get("mode") == "portals" and not portal_victory_screen
         result_screenshot = None
         if not portal_won:
             # The reward row streams its items in one at a time, so give it a
@@ -3089,6 +3181,15 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             # same stage directly, skipping the lobby/gamemode/map/stage
             # picks entirely (see _run_task_setup, which only runs once per
             # task, not once per repeat).
+            if portal_victory_screen:
+                # A portal's Victory screen has "Select Portal" instead of
+                # Repeat Stage -- the next portal is picked by the task's
+                # Portal Name (see PortalsOp._select_portal_post_victory).
+                self._set_status(action="Victory -- selecting the next portal...")
+                if not self._select_portal_post_victory(hwnd, stop_event, task.get("map") or "summer"):
+                    return False
+                self._log("[Macro] Next portal selected -- continuing this task's repeats.")
+                return True
             if task.get("mode") == "tower":
                 repeat_image = "Next_Floor" if result == "win" else "Repeat_Floor"
                 repeat_label = repeat_image

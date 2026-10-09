@@ -5,11 +5,12 @@ From the lobby, open the Inventory (nav_inv), switch to the Portals tab
 picker selection drives off the PORTAL_SEARCHES regions (search box + the
 portal-card list).
 
-That picker is only the way IN. A won round ends on the game's three-portal
-offer, and the portal taken there starts its round by itself -- see
-_carry_on_after_portal_win. It used to end on a Victory screen whose "Select
-Portal" button reopened the picker; the game's October 2026 update dropped
-both.
+A won round usually ends on the game's three-portal offer, and the portal
+taken there starts its round by itself -- see _carry_on_after_portal_win.
+A round that drops a secret unit ends differently: its reveal (Skip
+Cutscene), a lone Game Results button, then a Victory screen whose "Select
+Portal" button reopens this picker -- see _select_portal_post_victory. Before
+the game's October 2026 update every won round ended that way.
 
 The Summer event's own "Portal Mode" card used to be a second way in; it was
 retired, since every portal -- Summer or not -- is reachable from here.
@@ -354,19 +355,37 @@ class PortalsOp:
             return False
         return not self._checkpoint(stop_event)
 
+    def _select_portal_post_victory(self, hwnd, stop_event: threading.Event,
+                                    query: str = "summer") -> bool:
+        """After a round that ended on the Victory screen -- one with a
+        secret-unit reveal: click its "Select Portal" button, then pick the
+        next portal with `query` on the same picker the entry uses (see
+        _select_portal_on_picker). How every won round went on before the
+        October 2026 update.
+        """
+        self._set_status(action="Clicking Select Portal...")
+        if self._click_found_image(hwnd, "select_new_portal", EVENT_SCREEN_TIMEOUT, stop_event) is None:
+            self._spam_back_until_gone(hwnd, stop_event)
+            return False
+        if self._checkpoint(stop_event):
+            return False
+        time.sleep(SETTLE_DELAY)
+        return self._select_portal_on_picker(hwnd, stop_event, query)
+
     def _carry_on_after_portal_win(self, hwnd, stop_event: threading.Event,
                                    keep_playing: bool) -> bool:
         """After a won portal round: wait for the next round, then play it
         (keep_playing) or leave it for the lobby.
 
-        A won round ends on the three-portal offer alone. The portal taken
-        there (runner._take_portal_offer_if_found) starts its round by
-        itself, so with repeats left that round simply IS the next repeat,
-        and _run_task picks it up at Pre Start. When the task is done, or the
-        lobby is wanted between repeats, the round is left with the in-match
-        To Lobby button -- there is no result screen with Leave Stage to use
-        anymore. It is waited for first all the same: To Lobby on the old
-        round, mid-transition, is not a leave anyone can count on.
+        A won round ends on the three-portal offer alone (one with a
+        secret-unit reveal aside -- see _select_portal_post_victory). The
+        portal taken there (runner._take_portal_offer_if_found) starts its
+        round by itself, so with repeats left that round simply IS the next
+        repeat, and _run_task picks it up at Pre Start. When the task is
+        done, or the lobby is wanted between repeats, the round is left with
+        the in-match To Lobby button -- there is no result screen with Leave
+        Stage to use. It is waited for first all the same: To Lobby on the
+        old round, mid-transition, is not a leave anyone can count on.
         """
         if not self._wait_for_next_portal_round(hwnd, stop_event):
             return False
