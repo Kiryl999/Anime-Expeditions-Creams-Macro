@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.24.1] - 2026-10-09
+
+### Changed
+- **Sovereign's Portal card crops**: three more `portal_card` crops ship with the macro, taken from the Sovereign's Portal card, so a Portals task with that Portal Name finds its card in the picker.
+
 ## [0.21.24] - 2026-10-09
 
 ### New
