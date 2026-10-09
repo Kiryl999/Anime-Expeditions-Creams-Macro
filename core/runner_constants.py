@@ -87,6 +87,30 @@ START_GAME_CLICK_RETRY_ATTEMPTS = 3
 # only a button still holding its spot at the end gets another click.
 START_GAME_CLICK_VERIFY_WINDOW = 3.0
 START_GAME_CLICK_VERIFY_INTERVAL = 0.3
+
+# ── The game's Auto Play (core.runner_auto_play), for a Macro Operation with
+# Macro Manager > Pre Start > Auto Play switched on. The button TOGGLES, so it
+# is only ever clicked on sight of "Auto Play" (off) with no "Auto Playing"
+# (on) in the same frame, and after a click the macro waits for "Auto
+# Playing" instead of clicking again -- over Remote Desktop the label can lag
+# behind a click that took, and a second click then switches it back off.
+AUTO_PLAY_ON_IMAGE = "auto_play_on"     # the button reading "Auto Playing"
+AUTO_PLAY_OFF_IMAGE = "auto_play_off"   # the button reading "Auto Play"
+AUTO_PLAY_LOOK_INTERVAL = 0.25          # between looks while Start Game waits on it
+# Before Start Game: how long the button gets to show up at all, and how long
+# "off" has to hold before it is clicked -- a moment, in case something just
+# clicked it and the label is still catching up.
+AUTO_PLAY_FIND_TIMEOUT = 3.0
+AUTO_PLAY_OFF_SETTLE = 0.5
+# After a click: "Auto Playing" counts the moment it shows; still "Auto Play"
+# after this long counts as a click that did not take, and is clicked again.
+AUTO_PLAY_VERIFY_SETTLE = 2.5
+AUTO_PLAY_START_CLICKS = 3              # clicks before Start Game goes ahead without it
+# Mid-round: a look every this many seconds. "Off" has to be seen on two polls
+# in a row before a click, and a click that never takes stops after
+# AUTO_PLAY_WATCH_MAX_CLICKS until the next match.
+AUTO_PLAY_WATCH_INTERVAL = 5.0
+AUTO_PLAY_WATCH_MAX_CLICKS = 3
 START_GAME_BUTTON_WAIT_TIMEOUT = 5.0  # how long to poll for Start Game right after Pre Start hands off
 # ── Native Expedition encounter handling (_handle_expedition_encounter).
 # An encounter node parks the client somewhere a match result can never come

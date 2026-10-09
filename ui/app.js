@@ -4622,6 +4622,10 @@ let creationEquipment = 'include';
 // blocks -- saved with the template like the loadout (see
 // renderCameraSetupRow).
 let creationCamera = true;
+// Whether the run switches the game's Auto Play on before Start Game and keeps
+// it on during the round -- saved with the template too (see
+// renderAutoPlayRow).
+let creationAutoPlay = false;
 
 function newBlockId() {
   return 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -6677,6 +6681,8 @@ let imState = {
 // folder, so there's no tab to pick wrong. Names not listed here just show no
 // description (e.g. a brand-new template someone added by hand).
 const IMAGE_DESCRIPTIONS = {
+  auto_play_off: "The in-match Auto Play button while it is OFF ('Auto Play') -- what a Macro Operation with Auto Play switched on clicks, before Start Game and whenever it goes off mid-round.",
+  auto_play_on: "The in-match Auto Play button while it is ON ('Auto Playing'). Start Game waits for it when a Macro Operation has Auto Play switched on, and seeing it is what keeps the macro from clicking the button.",
   cannot_place: "Shown when a unit-placement spot is invalid (can't place here).",
   chal_enter: "The Challenge mode Enter/Join button.",
   chal_select: "The Challenge mode select button.",
@@ -7393,6 +7399,40 @@ function setCreationCamera(on) {
   renderPhases();
 }
 
+// The game's Auto Play, run by the macro itself (core/runner_auto_play.py):
+// Start Game waits until the button reads "Auto Playing", and during the round
+// it goes straight back on if it went off. Like Camera Setup it is not a block
+// -- it sits above the drop zone and saves with the template. It replaces the
+// Detect + Click pair routines used for this: left in, that pair clicks the
+// same toggle as the switch does.
+function renderAutoPlayRow() {
+  // &quot; -- the tip lands inside a double-quoted title attribute.
+  const tip = 'Switches the game\'s Auto Play on before Start Game -- the round only starts once the button reads '
+    + '&quot;Auto Playing&quot; -- and back on whenever it goes off during the round. Needs the crops auto_play_on '
+    + '(&quot;Auto Playing&quot;) and auto_play_off (&quot;Auto Play&quot;). Remove Detect/Click blocks that click '
+    + 'Auto Play yourself: they click the same toggle.';
+  return `
+    <div class="phase-fixture">
+      <div class="block-row pinned" style="--blk: var(--teal);">
+        <svg class="pinned-walk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="6 4 20 12 6 20 6 4"/>
+        </svg>
+        <span class="block-label" style="color: var(--teal);" title="${tip}">Auto Play</span>
+        <div class="seg-toggle">
+          <button type="button" class="seg-btn ${creationAutoPlay ? 'active' : ''}" onclick="setCreationAutoPlay(true)">On</button>
+          <button type="button" class="seg-btn ${creationAutoPlay ? '' : 'active'}" onclick="setCreationAutoPlay(false)">Off</button>
+        </div>
+        <span class="flex-1"></span>
+        <span class="pinned-walk-badge${creationAutoPlay ? '' : ' muted'}" title="${tip}">${creationAutoPlay ? 'Kept On' : 'Not Used'}</span>
+      </div>
+    </div>`;
+}
+
+function setCreationAutoPlay(on) {
+  creationAutoPlay = !!on;
+  renderPhases();
+}
+
 function renderPhases() {
   const el = document.getElementById('creation-phases');
   if (!el) return;
@@ -7449,7 +7489,7 @@ function renderPhases() {
           <span class="rp-head-tag" style="--rp-tag: ${phase === 'prestart' ? 'var(--teal)' : (phase === 'loop_a' || phase === 'loop_b') ? 'var(--sky)' : 'var(--rose)'}; margin-left: 2px;">${PHASE_TAGS[phase]}</span>
           <span class="phase-count">${blockCount}</span>
         </div>
-        ${phase === 'prestart' ? renderCameraSetupRow() : ''}
+        ${phase === 'prestart' ? renderCameraSetupRow() + renderAutoPlayRow() : ''}
         <div id="creation-canvas-${phase}" class="canvas-dropzone p-2"
              ondragover="onCanvasDragOver(event, '${phase}')" ondragleave="onCanvasDragLeave(event, '${phase}')"
              ondrop="onCanvasDrop(event, '${phase}')">${body}</div>
@@ -7652,7 +7692,8 @@ function onBlockDrop(e, key, targetId) {
 // now, so its mode/pathName save as part of the block itself, same as
 // every other block's own fields.
 function currentCreationPayload() {
-  const payload = { team: creationTeam, equipment: creationEquipment, camera: creationCamera };
+  const payload = { team: creationTeam, equipment: creationEquipment, camera: creationCamera,
+                    auto_play: creationAutoPlay };
   PHASES.forEach(phase => { payload[phase] = creationPhases[phase].map(serializeBlock); });
   return payload;
 }
@@ -7727,6 +7768,7 @@ function newTemplate() {
   creationTeam = '';
   creationEquipment = 'include';
   creationCamera = true;
+  creationAutoPlay = false;
   document.getElementById('template-name').value = '';
   document.getElementById('template-select').value = '';
   creationFreshLoad = true;
@@ -7998,6 +8040,7 @@ async function loadSelectedTemplate() {
     creationTeam = '';
     creationEquipment = 'include';
     creationCamera = true;
+    creationAutoPlay = false;
 
     if (Array.isArray(payload)) {
       // Oldest shape: one flat pre-phases list. Everything that still exists
@@ -8027,6 +8070,8 @@ async function loadSelectedTemplate() {
       // Only an explicit false switches it off -- templates saved before the
       // switch existed have no key and keep their camera setup.
       creationCamera = payload.camera !== false;
+      // Only an explicit true switches it on -- the runner reads it the same way.
+      creationAutoPlay = payload.auto_play === true;
     }
     // No walk_path handling needed here: renderPhases() below enforces the
     // pinned-block invariant (synthesize if missing, force Once, keep at

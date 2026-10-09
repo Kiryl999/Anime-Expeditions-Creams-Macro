@@ -32,6 +32,7 @@ from . import wave as wave_module
 from .diagnostics import FailureCategory, RecoveryAction, FailureReport, create_failure_report, save_failure_snapshot
 from . import window as wm
 from .runner_constants import *  # noqa: F401,F403 -- see runner_constants' docstring
+from .runner_auto_play import AutoPlayOps
 from .runner_blocks import BlockOps
 from .runner_boss_rush import BossRushOps
 from .runner_bounty import BountyOps
@@ -120,7 +121,8 @@ def _find_team_load_button(frame, expected_y):
 
 
 class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, ExpeditionOps,
-                   BlockOps, EventOps, PortalsOp, EclipseOps, BossRushOps, MonsterClashOps):
+                   BlockOps, EventOps, PortalsOp, EclipseOps, BossRushOps, MonsterClashOps,
+                   AutoPlayOps):
     """One run's worth of state -- module-level singleton via main.Api, same
     pattern as core.paths._recorder, since only one run can realistically be
     active at a time (one physical game window, one macro)."""
@@ -2220,6 +2222,10 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._set_status(action="Starting the round...")
         if self._checkpoint(stop_event):
             return False
+        # A macro with Auto Play switched on starts its round only once the
+        # game's Auto Play reads on (see AutoPlayOps).
+        if not self._auto_play_before_start(hwnd, stop_event, task, webhook):
+            return False
         # Start Game genuinely applies to Expedition too (it can show up
         # more than once, similar to Infinite mode) -- not skipped here.
         self._wait_out_start_game_warning(hwnd, stop_event)
@@ -2322,6 +2328,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._last_reward_card_at = 0.0
         self._last_board_disruption_at = 0.0
         self._battle_replayed = False
+        self._reset_auto_play_watch()
         # Loop A / Loop B: their own index+state, ticked and restarted every
         # poll alongside Battle (see _tick_loop_phases).
         loop_blocks = self._load_loop_blocks(task)
@@ -2652,6 +2659,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                         if self._wants_eclipse_card_watch(task) else None)
         fishing_point = self._fishing_point(task)
         fishing_interval = self._fishing_interval(task)
+        watch_auto_play = self._auto_play_enabled(task or {})
         self._set_status(action="Battle in progress...")
         battle_blocks = battle_blocks or []
         infinite_wave_limit = self._infinite_wave_limit(task)
@@ -2804,13 +2812,19 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             if watch_close_popup:
                 clicked_something = self._click_close_popup_if_found(hwnd) or clicked_something
 
+            # Auto Play back on if it went off -- only on a tick nothing else
+            # clicked on, for the same reason as the fishing cast below, and a
+            # click here holds that cast back in turn.
+            block_acted = self._battle_block_index != block_index_before
+            if watch_auto_play and not clicked_something and not block_acted:
+                clicked_something = self._tick_auto_play(hwnd)
+
             # Auto Fishing goes LAST in the tick, and only when nothing else
             # clicked. A cast is a plain left-click on water; a Place Unit
             # block is a two-step select-then-place, and a cast landing
             # between those two steps puts the unit in the water. Skipping the
             # tick costs at most one cast -- an extra click never cancels a
             # cast, so the next tick simply catches up.
-            block_acted = self._battle_block_index != block_index_before
             if fishing_point and not clicked_something and not block_acted:
                 # The rod check lives HERE, not before the round: the XP bar
                 # is in-game HUD, absent until the round is actually running.

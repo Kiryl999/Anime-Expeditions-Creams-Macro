@@ -134,6 +134,26 @@ second -- over Remote Desktop, for example -- the same key press zooms less far.
 If the camera does not end up looking straight down and fully zoomed out there,
 hold the keys longer under **Settings > Debug > Camera Setup Timing**.
 
+The **Auto Play** row below it is part of the template too. Switched **On**, the
+macro takes care of the game's Auto Play itself:
+
+- Before Start Game it looks at the Auto Play button. If it reads "Auto
+  Playing", the round starts right away; if it reads "Auto Play", the macro
+  clicks it once and starts the round as soon as it reads "Auto Playing".
+- It never clicks twice in a row: the button switches Auto Play on and off, so
+  after a click the macro waits for the label to change. Only if it still reads
+  "Auto Play" after about 2.5 seconds is it clicked again, up to 3 times. After
+  that, or if the button is not found at all, the round starts anyway and a
+  warning goes to the log and the Discord webhook.
+- During the round it looks every 5 seconds. If Auto Play went off -- seen on
+  two looks in a row -- it is clicked back on.
+
+The button is found with two crops that ship with the macro: `auto_play_on`
+("Auto Playing") and `auto_play_off` ("Auto Play"). If they do not match on your
+setup -- over Remote Desktop in particular -- add your own crops under those two
+names in the Image Manager. With the row On, remove any Detect or Click blocks
+that click Auto Play: they click the same button and can switch it back off.
+
 ### Expedition encounters
 
 Expedition nodes can drop an encounter that has to be walked to and talked to.

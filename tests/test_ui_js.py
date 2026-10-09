@@ -1133,6 +1133,7 @@ global.PHASES = ['prestart', 'battle'];
 let nameValue = 'Boss Rush';
 global.document = { getElementById: () => ({ get value() { return nameValue; } }) };
 global.creationTeam = ''; global.creationEquipment = 'include'; global.creationCamera = true;
+global.creationAutoPlay = false;
 global.creationPhases = { prestart: [], battle: [] };
 global.renderPhases = () => {};
 eval(extract('serializeBlock'));
@@ -1141,6 +1142,7 @@ eval(extract('currentCreationSnapshot'));
 eval(extract('markCreationEditorSaved'));
 eval(extract('creationEditorHasUnsavedChanges'));
 eval(extract('setCreationCamera'));
+eval(extract('setCreationAutoPlay'));
 let creationSavedSnapshot = null;
 const before = creationEditorHasUnsavedChanges();
 markCreationEditorSaved();
@@ -1154,10 +1156,16 @@ const afterCameraOff = creationEditorHasUnsavedChanges();
 const savedCamera = currentCreationPayload().camera;
 setCreationCamera(true);
 const afterCameraBackOn = creationEditorHasUnsavedChanges();
+setCreationAutoPlay(true);
+const afterAutoPlayOn = creationEditorHasUnsavedChanges();
+const savedAutoPlay = currentCreationPayload().auto_play;
+setCreationAutoPlay(false);
+const afterAutoPlayBackOff = creationEditorHasUnsavedChanges();
 nameValue = 'Renamed';
 const afterRename = creationEditorHasUnsavedChanges();
 console.log(JSON.stringify({ before, afterSave, afterEdit, afterUndo, afterCameraOff, savedCamera,
-                             afterCameraBackOn, afterRename }));
+                             afterCameraBackOn, afterAutoPlayOn, savedAutoPlay, afterAutoPlayBackOff,
+                             afterRename }));
 """
 
 
@@ -1170,6 +1178,9 @@ def test_unsaved_changes_tracking(tmp_path):
     assert out["afterCameraOff"] is True, "switching Camera Setup off is an unsaved change"
     assert out["savedCamera"] is False, "the switch is saved with the template"
     assert out["afterCameraBackOn"] is False
+    assert out["afterAutoPlayOn"] is True, "switching Auto Play on is an unsaved change"
+    assert out["savedAutoPlay"] is True, "the switch is saved with the template"
+    assert out["afterAutoPlayBackOff"] is False
     assert out["afterRename"] is True, "renaming is an unsaved change too"
 
 
@@ -1177,6 +1188,7 @@ _CAMERA_LOAD = """
 global.PHASES = ['prestart', 'battle'];
 global.document = { getElementById: () => ({ value: '' }) };
 global.creationTeam = ''; global.creationEquipment = 'include'; global.creationCamera = true;
+global.creationAutoPlay = false;
 global.creationPhases = { prestart: [], battle: [] };
 global.creationFreshLoad = false;
 global.renderPhases = () => {};
@@ -1191,11 +1203,14 @@ async function load(label, blocks) {
   global.document = { getElementById: () => ({ value: 'x' }) };
   await loadSelectedTemplate();
   results[label] = creationCamera;
+  results[label + ' auto play'] = creationAutoPlay;
 }
 (async () => {
   await load('off', { camera: false, prestart: [], battle: [] });
   await load('from off', { prestart: [], battle: [] });
-  await load('on', { camera: true, prestart: [], battle: [] });
+  await load('on', { camera: true, auto_play: true, prestart: [], battle: [] });
+  creationAutoPlay = true;
+  await load('after on', { prestart: [], battle: [] });
   console.log(JSON.stringify(results));
 })();
 """
@@ -1206,6 +1221,13 @@ def test_loading_a_template_restores_its_camera_switch(tmp_path):
     assert out["off"] is False
     assert out["from off"] is True, "a template without the key loads with Camera Setup on"
     assert out["on"] is True
+
+
+def test_loading_a_template_restores_its_auto_play_switch(tmp_path):
+    out = run_js(_CAMERA_LOAD, tmp_path)
+    assert out["on auto play"] is True
+    assert out["off auto play"] is False
+    assert out["after on auto play"] is False, "a template without the key loads with Auto Play off"
 
 # ---------------------------------------------------------------------------
 # The in-game Roblox checklist
