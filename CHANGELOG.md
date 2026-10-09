@@ -2,6 +2,12 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.23] - 2026-10-09
+
+### Changed
+- **Monster Clash repeats with Repeat Stage**: a run that ends on its first map -- no helicopter -- now clicks **Repeat Stage** on the result screen and plays the same stage again, like any Solo stage, instead of leaving to the lobby and going back in through the Events menu. Only after the helicopter's map, whose result screen has no Repeat Stage, does the macro still leave and go in through Events > Monster Clash again. The last repeat of a task leaves to the lobby as before.
+- **Helicopter runs are marked in the run history**: a Monster Clash run that went on by helicopter shows as **Monster Clash (Helicopter)** in the run history and in the result webhook; a run without one stays **Monster Clash**.
+
 ## [0.21.22] - 2026-10-09
 
 ### New
