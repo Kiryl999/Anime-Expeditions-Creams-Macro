@@ -2,6 +2,11 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.22] - 2026-10-09
+
+### New
+- **Auto Play is switched on before the round starts**: a Macro Operation has a new **Auto Play** row under Pre Start, below Camera Setup, saved with the template. Switched **On**, the macro looks at the game's Auto Play button before Start Game: if it reads "Auto Playing" the round starts right away, if it reads "Auto Play" the macro clicks it once and only presses Start Game once it reads "Auto Playing". It never clicks twice in a row -- the button switches Auto Play on and off, so after a click the macro waits for the label to change, and only if it still reads "Auto Play" after about 2.5 seconds is it clicked again, up to 3 times. After that, or if the button is not found at all, the round starts anyway and a warning goes to the log and the Discord webhook. During the round the button is checked every 5 seconds, and Auto Play is switched back on if it went off. The two crops it uses ship with the macro (`auto_play_on` and `auto_play_off`); if they do not match on your setup -- over Remote Desktop in particular -- add your own under those names in the Image Manager. With the row On, remove any Detect or Click blocks that click Auto Play: they click the same button and can switch it back off. The row is Off by default, so existing Macro Operations behave as before.
+
 ## [0.21.21] - 2026-10-08
 
 ### Changed
