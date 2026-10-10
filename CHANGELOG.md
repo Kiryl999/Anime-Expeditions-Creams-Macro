@@ -2,6 +2,14 @@
 
 All notable changes to Anime Expeditions (Cream's Macro) are documented here.
 
+## [0.21.25] - 2026-10-10
+
+### Changed
+- **Raids skip their cutscenes**: a raid round that drops a secret unit now ends like a portal round does -- a cutscene with **Skip Cutscene**, then a lone **Game Results** button that opens the Victory screen. Every Raid task watches for Skip Cutscene every 2 seconds, on every map and Act (raids still to come included), clicks it once, then clicks Game Results right away; from the Victory screen it goes on as usual with Repeat Stage, or Leave on the last repeat. The "Click anywhere to close" watch that Spirit City and Snowy Castle Act 3 had is gone. Its `click_anywhere_to_close` crops stay, since Expedition encounters still click that prompt.
+
+### Fixed
+- **Regular Challenge no longer gives up on an open Play menu**: over Remote Desktop the Play menu could open while its Back button (`nav_back`) was not recognized in it -- even with a fresh crop. The macro took that for a Play click that never registered, found no Play to click again ("nav_play vanished") and gave the challenge up; the recovery could not close the menu either, so Roblox was rejoined, and the next Challenge did the same. The open menu is now also recognized by its cards (Story, Raid, Challenge, Expedition, Boss Rush), and Play gone after its click counts as a click that took: the macro goes on to the Challenge card, saves a `gamemode_menu_no_back` screenshot and notes in the log that the `nav_back` crop should be checked. If the menu is still open when the lobby is needed, the log now says so before the rejoin instead of calling it a disconnect.
+
 ## [0.21.24.1] - 2026-10-09
 
 ### Changed
