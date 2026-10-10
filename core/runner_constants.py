@@ -1457,6 +1457,12 @@ ECLIPSE_MARKER_MAP_MAX_DX = 180
 
 # The Boss Rush card on the Play menu, picked in place of Story.
 BOSS_RUSH_IMAGE_NAMES = ("boss_rush",)
+# Every card on the Play menu. Any one of them in GAMEMODE_CARD_REGION shows
+# the menu is open, next to its Back button (nav_back): over Remote Desktop
+# nav_back was seen not to match in an open menu -- a fresh crop did not help
+# -- and the run took that for a Play click that never registered.
+GAMEMODE_CARD_IMAGE_NAMES = (STORY_IMAGE_NAMES + RAID_IMAGE_NAMES + CHALLENGE_IMAGE_NAMES
+                             + EXPEDITION_IMAGE_NAMES + BOSS_RUSH_IMAGE_NAMES)
 # Map name -> its card on the Boss Rush screen. One map so far; a new one is
 # an entry here, its crop, and its name in TASK_DATA.boss_rush.maps (a test
 # keeps the two lists in step).

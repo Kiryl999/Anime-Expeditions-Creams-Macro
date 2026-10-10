@@ -723,7 +723,9 @@ def test_boss_rush_has_no_stage_row_or_difficulty_to_pick():
 def test_the_gamemode_menu_finds_the_boss_rush_card(monkeypatch):
     runner = _macro_runner()
     monkeypatch.setattr(runner_module.time, "sleep", lambda _s: None)
-    monkeypatch.setattr(runner_module.vision, "wait_for_image", lambda *a, **k: _match())
+    # The menu is open: its Back button shows (see _wait_for_gamemode_menu).
+    monkeypatch.setattr(runner_module.vision, "find_image",
+                        lambda hwnd, name, **k: _match() if name == "nav_back" else None)
     runner._dismiss_party_overlay = lambda hwnd, stop: True
     looked_for = []
     runner._find_gamemode_card = lambda hwnd, stop, names, label: (

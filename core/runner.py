@@ -4905,6 +4905,21 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
             return True
         if stop_event.is_set():
             return False
+        # An open gamemode menu hides Play too. Normally Back closed it
+        # before this check, so one still up here means nav_back is not
+        # recognized in it (seen over Remote Desktop). Without its Back
+        # button the menu has no other way out, so the rejoin below stays --
+        # but the log says why, instead of calling it a disconnect.
+        menu_card, menu_card_name = self._find_gamemode_menu_card(hwnd)
+        if menu_card is not None:
+            screenshot_path = self._save_debug_screenshot_unconditional(hwnd, "lobby_hidden_by_gamemode_menu")
+            suffix = f" Debug: {screenshot_path}" if screenshot_path else ""
+            self._log(f'[Macro] Not a disconnect: the gamemode menu is still open (found the '
+                      f'"{menu_card_name}" card), and its Back button ("nav_back") is not recognized, so '
+                      f'it can\'t be closed -- rejoining is the only way back to the lobby. Add a crop of '
+                      f'that Back button via Settings > General > Image Manager, or check that crop\'s '
+                      f'sensitivity there.{suffix}')
+            return self._attempt_rejoin(hwnd, stop_event)
         # No Play button after a full LOBBY_CHECK_TIMEOUT wait looks exactly
         # like a silent disconnect that never even triggered Roblox's own
         # Reconnect/Retry prompt (see _handle_disconnect) -- rather than
@@ -5435,6 +5450,37 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         state["clicked_at"] = now
         state["seen_since"] = now
 
+    def _find_gamemode_menu_card(self, hwnd):
+        """(match, name) of any Play-menu card in the cards panel, or
+        (None, None). Seeing one means the gamemode menu is open, whether
+        or not its Back button (nav_back) is recognized -- see
+        GAMEMODE_CARD_IMAGE_NAMES. Optional: no card crops, no answer."""
+        try:
+            return vision.find_image_any(hwnd, GAMEMODE_CARD_IMAGE_NAMES, region=GAMEMODE_CARD_REGION)
+        except vision.TemplateNotFound:
+            return None, None
+
+    def _wait_for_gamemode_menu(self, hwnd, stop_event: threading.Event, timeout: float):
+        """Wait for the gamemode menu after a Play click: its Back button
+        (nav_back) or any of its cards, whichever shows first. Returns the
+        match, or None after `timeout` or a stop. Raises
+        vision.TemplateNotFound when nav_back has no crop at all."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if stop_event.is_set():
+                return None
+            match = vision.find_image(hwnd, "nav_back")
+            if match is not None:
+                return match
+            match, name = self._find_gamemode_menu_card(hwnd)
+            if match is not None:
+                self._log(f'[Macro] Gamemode menu open (found the "{name}" card, '
+                          f'score {match["score"]:.2f}).')
+                return match
+            if stop_event.wait(0.3):
+                return None
+        return None
+
     def _find_gamemode_card(self, hwnd, stop_event: threading.Event, names, label: str):
         """Locate a gamemode card, widening the search before giving up.
 
@@ -5480,19 +5526,38 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         # already known to be there.
         if wait_for_menu:
             match = None
+            menu_assumed_open = False
             for attempt in range(1, PLAY_CLICK_RETRY_ATTEMPTS + 1):
-                self._log(f'[Macro] Waiting for the gamemode menu to open (searching "nav_back", up to '
-                           f'{STORY_SCREEN_TIMEOUT:.0f}s)...' if attempt == 1 else
-                           f'[Macro] "nav_back" not found within {STORY_SCREEN_TIMEOUT:.0f}s -- still on '
+                self._log(f'[Macro] Waiting for the gamemode menu to open (searching "nav_back" and the '
+                           f'menu cards, up to {STORY_SCREEN_TIMEOUT:.0f}s)...' if attempt == 1 else
+                           f'[Macro] Gamemode menu not seen within {STORY_SCREEN_TIMEOUT:.0f}s -- still on '
                            f'the lobby, re-clicking Play (attempt {attempt}/{PLAY_CLICK_RETRY_ATTEMPTS})...')
                 self._set_status(action='Waiting for gamemode menu ("nav_back")...')
                 try:
-                    match = vision.wait_for_image(
-                        hwnd, "nav_back", timeout=STORY_SCREEN_TIMEOUT, stop_event=stop_event)
+                    match = self._wait_for_gamemode_menu(hwnd, stop_event, STORY_SCREEN_TIMEOUT)
                 except vision.TemplateNotFound as exc:
                     self._log(f"[Macro] Can't confirm the menu opened: {exc}")
                     return False
                 if match is not None or stop_event.is_set():
+                    break
+                # Play gone after its click means the click took: the menu
+                # is up, and neither nav_back nor a card is recognized in it.
+                # Seen live over Remote Desktop with the menu visibly open --
+                # re-clicking found no Play and gave the whole entry up. Go
+                # on to the card search instead; if the menu really is not
+                # there, that fails with its own message.
+                try:
+                    play_match, _ = vision.find_image_any(hwnd, NAV_PLAY_IMAGE_NAMES)
+                except vision.TemplateNotFound:
+                    play_match = None
+                if play_match is None:
+                    screenshot_path = self._save_debug_screenshot_unconditional(hwnd, "gamemode_menu_no_back")
+                    suffix = f" Debug: {screenshot_path}" if screenshot_path else ""
+                    self._log(f'[Macro] Play is gone, so the gamemode menu is most likely open -- but neither '
+                              f'"nav_back" nor a menu card was recognized in it. Going on to the card. If '
+                              f'the menu is open, add a crop of its Back button (nav_back) via Settings > '
+                              f'General > Image Manager, or check that crop\'s sensitivity there.{suffix}')
+                    menu_assumed_open = True
                     break
                 if attempt < PLAY_CLICK_RETRY_ATTEMPTS:
                     # Still on the lobby -- the earlier Play click plausibly
@@ -5509,12 +5574,13 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                     self._dismiss_lobby_overlay(hwnd)
                     if not self._click_play(hwnd, stop_event):
                         return False
-            if match is None:
+            if match is None and not menu_assumed_open:
                 if not stop_event.is_set():
-                    self._log(f'[Macro] "nav_back" not found within {STORY_SCREEN_TIMEOUT:.0f}s x '
-                               f'{PLAY_CLICK_RETRY_ATTEMPTS} attempt(s) -- the gamemode menu never opened '
-                               f'(if it\'s visibly open, add your own crop of its Back button via '
-                               f'Settings > General > Image Manager). Stopping.')
+                    self._log(f'[Macro] Neither "nav_back" nor a menu card found within '
+                               f'{STORY_SCREEN_TIMEOUT:.0f}s x {PLAY_CLICK_RETRY_ATTEMPTS} attempt(s), and Play '
+                               f'is still there -- the gamemode menu never opened (if it\'s visibly open, add '
+                               f'your own crop of its Back button via Settings > General > Image Manager). '
+                               f'Stopping.')
                     self._save_debug_screenshot_unconditional(hwnd, "gamemode_menu_timeout")
                 return False
 
