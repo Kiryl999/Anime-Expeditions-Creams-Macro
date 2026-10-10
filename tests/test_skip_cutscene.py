@@ -1,12 +1,13 @@
-"""A won portal round with a secret-unit reveal, in Portals tasks.
+"""A won round with a secret-unit reveal, in Portals and Raid tasks.
 
-Some portal rounds can drop a secret unit once won. Its reveal plays a
-cutscene instead of the three-portal offer; Skip Cutscene ends it, and all
-that is left is a lone Game Results button. That opens the Victory screen,
-whose Select Portal picks the next portal -- or, on the last repeat, the
-round is left as from any result screen. Which portals can drop one is not
-known, and the offer can lead to any of them, so every Portals task watches
-for the button: a look every SKIP_CUTSCENE_LOOK_INTERVAL.
+Some portal and raid rounds can drop a secret unit once won. Its reveal plays
+a cutscene; Skip Cutscene ends it, and all that is left is a lone Game
+Results button. That opens the Victory screen. A raid's is handled like any
+other; a portal's has Select Portal, which picks the next portal -- or, on
+the last repeat, the round is left as from any result screen. Which portals
+and raid maps can drop one is not known, so every Portals and Raid task
+watches for the button: a look every SKIP_CUTSCENE_LOOK_INTERVAL. It replaced
+the "Click anywhere to close" watch Spirit City and Snowy Castle Act 3 had.
 """
 import threading
 from pathlib import Path
@@ -60,13 +61,33 @@ def test_every_portals_task_watches_for_it():
 
 
 @pytest.mark.parametrize("task", [
-    {"mode": "story", "stage": "3"},
+    {"mode": "raid", "map": "Spirit City", "stage": "3"},
     {"mode": "raid", "map": "Snowy Castle", "stage": "3"},
+    {"mode": "raid", "map": "Snowy Castle", "stage": "1"},
+    {"mode": "raid", "map": "A Raid Still To Come", "stage": "2"},
+])
+def test_every_raid_task_watches_for_it_whatever_the_map_or_act(task):
+    assert MacroRunner._wants_skip_cutscene_watch(task)
+
+
+@pytest.mark.parametrize("task", [
+    {"mode": "story", "stage": "3"},
     {"mode": "monster_clash", "map": "Monster Clash"},
+    {"mode": "boss_rush", "map": "District 7"},
     {},
 ])
 def test_nothing_else_pays_for_the_search(task):
     assert not MacroRunner._wants_skip_cutscene_watch(task)
+
+
+def test_the_click_anywhere_watch_is_gone():
+    """Raid Act 3's "Click anywhere to close" watch is replaced, not kept
+    alongside: its click on a cutscene would land somewhere on the round."""
+    import inspect
+
+    assert not hasattr(MacroRunner, "_click_close_popup_if_found")
+    assert not hasattr(MacroRunner, "_wants_close_popup_watch")
+    assert "click_anywhere_to_close" not in inspect.getsource(MacroRunner._wait_for_match_result)
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +200,20 @@ def test_a_skipped_reveal_opens_the_victory_screen_through_game_results(monkeypa
     # Right away -- not after the grace that sits out the offer.
     assert runner.results_clicked_on * MATCH_RESULT_POLL_INTERVAL < GAME_RESULTS_GRACE
     assert any("Skip Cutscene" in line for line in runner.logged)
+
+
+def test_a_raid_round_goes_from_the_skip_to_its_victory_screen(monkeypatch):
+    """Same ending as a portal round's reveal, minus the portal: the Victory
+    screen is then a raid's usual one, with Repeat Stage and Leave."""
+    runner = _poll_runner(monkeypatch, cutscene_ticks={1}, results_after_skip=True)
+
+    result = runner._wait_for_match_result(
+        1, threading.Event(), task={"mode": "raid", "map": "Snowy Castle", "stage": "3"})
+
+    assert result == "win"
+    assert runner.clicks_on(_SKIP) == 1
+    assert runner.clicks_on(_RESULTS) == 1
+    assert runner._portal_victory_screen is False, "no Select Portal on a raid's Victory screen"
 
 
 def test_an_offer_win_keeps_the_offer_path(monkeypatch):

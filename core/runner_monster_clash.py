@@ -126,7 +126,7 @@ class MonsterClashOps:
         battle_blocks = self._begin_battle(task)
         result = self._wait_for_match_result(
             hwnd, stop_event, battle_blocks, first_repeat, task.get("macro"), task.get("mode"),
-            self._wants_close_popup_watch(task), webhook, task, watch_helicopter=True)
+            webhook, task, watch_helicopter=True)
         if result != "helicopter":
             return result
         self._monster_clash_took_helicopter = True
@@ -202,4 +202,4 @@ class MonsterClashOps:
         battle_blocks = self._begin_battle(heli_task)
         return self._wait_for_match_result(
             hwnd, stop_event, battle_blocks, True, heli_task.get("macro"), heli_task.get("mode"),
-            self._wants_close_popup_watch(heli_task), webhook, heli_task)
+            webhook, heli_task)

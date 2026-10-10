@@ -564,11 +564,8 @@ class RunRunner(FakeRunner):
         self.calls.append(("begin", task.get("macro")))
         return ["blocks for " + str(task.get("macro"))]
 
-    def _wants_close_popup_watch(self, task):
-        return False
-
     def _wait_for_match_result(self, hwnd, stop_event, battle_blocks=None, first_repeat=True,
-                               macro_name=None, mode=None, watch_close_popup=False,
+                               macro_name=None, mode=None,
                                webhook=None, task=None, watch_gate_clear=False):
         self.calls.append(("battle", tuple(battle_blocks), watch_gate_clear))
         if not watch_gate_clear:

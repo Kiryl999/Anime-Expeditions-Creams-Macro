@@ -650,72 +650,22 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                   f'{RETURN_TO_LOBBY_CLICK_RETRY_ATTEMPTS} clicks -- continuing anyway.')
         return True
 
-    def _click_close_popup_if_found(self, hwnd) -> bool:
-        """Dismiss a full-screen "Click anywhere to close" panel if one is up.
-
-        Checked every poll tick while watching for the match result (see
-        watch_close_popup in _wait_for_match_result). Its visual variants all
-        live in Assets/ui/click_anywhere_to_close/ and are tried automatically
-        per search (see vision.template_variant_paths).
-
-        The click is deliberately not a bare click_match. Reported live on the
-        Iron Wolf reveal: the cursor moved to the panel and nothing happened.
-        Two things were missing that the rest of this codebase already does
-        for clicks the game has to actually receive --
-
-        * focus: activate_window first, as the other click paths do, or the
-          click can go to whatever is focused instead of Roblox;
-        * hover-in: shuffle_click approaches with real relative moves, which
-          is the documented remedy for a button whose click "visually lands"
-          but never registers (Mouse.shuffle_click, added for Expedition's
-          extract confirm and the lobby Event button).
-
-        And it now verifies. The panel hides the Victory screen entirely, so a
-        click that silently failed used to just repeat every tick until the
-        match timeout with nothing in the log to say so. If the panel is still
-        up after the click, the middle of the screen is tried once -- "click
-        anywhere" ought to mean the centre too, and the panel's text can sit
-        in a strip that is not itself the input catcher.
-
-        Returns whether a panel was seen at all.
-        """
-        try:
-            match = vision.find_image(hwnd, "click_anywhere_to_close")
-        except vision.TemplateNotFound:
-            return False
-        if match is None:
-            return False
-        debug_path = self._debug_save(hwnd, "click_anywhere_to_close", match)
-        suffix = f" Debug: {debug_path}" if debug_path else ""
-        self._log(f"[Macro] Found \"Click anywhere to close\" (score {match['score']:.2f}) -- clicking it.{suffix}")
-        if not wm.activate_window(hwnd):
-            self._log("[Macro] Couldn't confirm focus before dismissing the close panel -- "
-                      "the click may not register.")
-        vision.click_match(self._mouse, hwnd, match, shuffle=True)
-
-        time.sleep(CLOSE_POPUP_VERIFY_DELAY)
-        try:
-            still_there = vision.find_image(hwnd, "click_anywhere_to_close")
-        except vision.TemplateNotFound:
-            return True
-        if still_there is None:
-            return True
-
-        left, top, _, _ = wm.get_window_rect_screen(hwnd)
-        self._log("[Macro] The close panel is still up -- clicking the middle of the screen instead.")
-        self._mouse.shuffle_click(left + self._coords["screen_middle_x"],
-                                  top + self._coords["screen_middle_y"])
-        return True
-
     def _click_skip_cutscene_if_found(self, hwnd) -> bool:
-        """Click "Skip Cutscene" when a secret-unit reveal put it up.
+        """Click "Skip Cutscene" when a cutscene put it up.
 
-        Some portal rounds can drop a secret unit, and its reveal plays a
+        Portal and raid rounds can drop a secret unit, and its reveal plays a
         cutscene over the screen once the round is won. One click on Skip
         Cutscene ends it; what is left then is a lone Game Results button
-        (see _open_results_after_reveal). Focus and a hover-in click, as for
-        the close panel above. Not verified: a click that did not register
-        is clicked again on the next look (SKIP_CUTSCENE_LOOK_INTERVAL).
+        (see _open_results_after_reveal).
+
+        Not a bare click_match. Reported live on the click-anywhere panel
+        Snowy Castle's Iron Wolf reveal used to put up: the cursor moved to
+        it and nothing happened. So the window is focused first, or the
+        click can go to whatever has focus, and the click hovers in with real
+        relative moves (Mouse.shuffle_click), the remedy for a click that
+        visually lands but never registers. Not verified: a click that did
+        not register is clicked again on the next look
+        (SKIP_CUTSCENE_LOOK_INTERVAL).
 
         Returns whether the button was seen. Quiet while its crop folder
         (Assets/ui/skip_cutscene/) holds no image.
@@ -740,12 +690,13 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         leaves, which opens the round's Victory screen.
 
         Unlike _reopen_game_results, right away: that one waits out
-        GAME_RESULTS_GRACE because the button also sits under the
-        three-portal offer, and a round with a reveal has no offer. Searched
-        on the whole window, not GAME_RESULTS_REGION -- this is only looked
-        for briefly after a skip. Shares results_state with that check, so
-        the two never click it twice and the poll loop holds its other
-        clicks off while the panel animates in. Returns whether it clicked.
+        GAME_RESULTS_GRACE because the button also sits under a portal
+        round's three-portal offer, and a round with a reveal has no offer.
+        Searched on the whole window, not GAME_RESULTS_REGION -- this is only
+        looked for briefly after a skip. Shares results_state with that
+        check, so the two never click it twice and the poll loop holds its
+        other clicks off while the panel animates in. Returns whether it
+        clicked.
         """
         try:
             match = vision.find_image(hwnd, GAME_RESULTS_IMAGE)
@@ -2264,9 +2215,8 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
         self._log("[Macro] Moving into Battle.")
 
         battle_blocks = self._begin_battle(task)
-        watch_close_popup = self._wants_close_popup_watch(task)
         return self._wait_for_match_result(hwnd, stop_event, battle_blocks, first_repeat, task.get("macro"),
-                                             task.get("mode"), watch_close_popup, webhook, task)
+                                             task.get("mode"), webhook, task)
 
     def _press_start_game(self, hwnd, stop_event: threading.Event, task: dict, webhook: dict = None) -> bool:
         """Press Start Game once Pre Start is done, retrying until it is gone.
@@ -2476,26 +2426,16 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
     @staticmethod
     def _wants_skip_cutscene_watch(task: dict) -> bool:
-        """Whether the poll loop watches for a secret-unit reveal's Skip
-        Cutscene. Every Portals task: which portals can drop a secret unit is
-        not known, and the offer can lead to any of them -- see
-        SKIP_CUTSCENE_LOOK_INTERVAL for what the watch costs."""
-        return task.get("mode") == "portals"
+        """Whether the poll loop watches for a cutscene's Skip Cutscene.
 
-    @staticmethod
-    def _wants_close_popup_watch(task: dict) -> bool:
-        """Whether this task can hit a full-screen "Click anywhere to close"
-        panel mid-battle, so the poll loop should watch for one.
-
-        Kept off everywhere else because it is one more image search per
-        poll tick; see CLOSE_POPUP_RAID_MAPS for the maps and why each is
-        on the list. Was hardcoded to Spirit City Act 3 on the assumption
-        that its boss intro was the only such panel -- Snowy Castle Act 3
-        disproved that with its Iron Wolf secret-unit reveal.
+        Every Portals and every Raid task, whatever the portal, map or Act:
+        which ones can drop a secret unit is not known -- the offer can lead
+        to any portal, and raid maps keep coming. See
+        SKIP_CUTSCENE_LOOK_INTERVAL for what the watch costs. It replaces the
+        "Click anywhere to close" watch Spirit City and Snowy Castle Act 3
+        had: the game's cutscenes end with Skip Cutscene now.
         """
-        return (task.get("mode") == "raid"
-                and task.get("map") in CLOSE_POPUP_RAID_MAPS
-                and str(task.get("stage")) == CLOSE_POPUP_RAID_STAGE)
+        return task.get("mode") in ("portals", "raid")
 
     @staticmethod
     def _infinite_wave_limit(task: dict):
@@ -2713,7 +2653,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
     def _wait_for_match_result(self, hwnd, stop_event: threading.Event, battle_blocks: list = None,
                                  first_repeat: bool = True, macro_name: str = None, mode: str = None,
-                                 watch_close_popup: bool = False, webhook: dict = None, task: dict = None,
+                                 webhook: dict = None, task: dict = None,
                                  watch_gate_clear: bool = False, watch_helicopter: bool = False) -> str:
         """Poll the running match until it ends. Returns "win"/"loss", an
         Infinite exit ("wave_limit"/"restarted"), "left", or None on
@@ -2887,8 +2827,6 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
                 # while the panel animates back in, so nothing lands on it
                 # and shuts it again before Victory/Defeat is read.
                 clicked_something = True
-            if watch_close_popup:
-                clicked_something = self._click_close_popup_if_found(hwnd) or clicked_something
             if watch_skip_cutscene and time.time() - skip_cutscene_looked_at >= SKIP_CUTSCENE_LOOK_INTERVAL:
                 skip_cutscene_looked_at = time.time()
                 if self._click_skip_cutscene_if_found(hwnd):
@@ -4311,7 +4249,7 @@ class MacroRunner(BountyOps, ChallengeOps, CraftingOps, FuelOps, ShopOps, Expedi
 
         A bare click_match was missing all three things the rest of this
         codebase already does for a click the game has to receive (see
-        _click_close_popup_if_found, which has the same list): activate the
+        _click_skip_cutscene_if_found and _click_and_verify_gone): activate the
         window first, approach with real relative moves, and check the
         button actually went away afterwards.
 

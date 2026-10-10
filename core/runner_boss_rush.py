@@ -215,8 +215,7 @@ class BossRushOps:
             self._reset_boss_rush_card_watch()
             result = self._wait_for_match_result(
                 hwnd, stop_event, battle_blocks, first_repeat, task.get("macro"),
-                task.get("mode"), self._wants_close_popup_watch(task), webhook, task,
-                watch_gate_clear=True)
+                task.get("mode"), webhook, task, watch_gate_clear=True)
             if result != "gate_cleared":
                 return result
 
@@ -496,4 +495,4 @@ class BossRushOps:
         battle_blocks = self._begin_battle(boss_task)
         return self._wait_for_match_result(
             hwnd, stop_event, battle_blocks, first_repeat, boss_task.get("macro"),
-            boss_task.get("mode"), self._wants_close_popup_watch(boss_task), webhook, boss_task)
+            boss_task.get("mode"), webhook, boss_task)

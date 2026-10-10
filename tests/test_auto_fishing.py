@@ -404,7 +404,7 @@ def test_the_cast_is_held_back_while_other_clicks_happen():
     assert "clicked_something" in source and "block_acted" in source
     cast = source.index("_tick_fishing")
     for earlier in ("_run_battle_blocks_tick", "_take_portal_offer_if_found",
-                    "_click_close_popup_if_found"):
+                    "_click_skip_cutscene_if_found", "_open_results_after_reveal"):
         assert source.index(earlier) < cast, f"{earlier} must run before a cast"
 
 

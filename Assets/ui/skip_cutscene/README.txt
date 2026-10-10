@@ -1,13 +1,17 @@
 skip_cutscene
 
-The "Skip Cutscene" button of a secret-unit reveal. Some portal rounds can
-drop a secret unit once won, and its reveal plays a cutscene instead of the
-three-portal offer. A Portals task looks for this button every 2 seconds
-during the round and clicks it once when it shows (core/runner.py,
+The "Skip Cutscene" button of a cutscene over the round -- a secret-unit
+reveal once a portal or raid round is won. Every Portals and every Raid task
+(any map, any Act) looks for this button every 2 seconds during the round
+and clicks it once when it shows (core/runner.py,
 _click_skip_cutscene_if_found). What is left then is a lone "Game Results"
 button (Assets/ui/game_results/), which the macro clicks to open the Victory
-screen; there it goes on with "Select Portal" (Assets/ui/select_new_portal/),
-or leaves on a task's last repeat.
+screen. A raid goes on from there as from any Victory screen (Repeat Stage,
+or Leave on the last repeat); a portal round goes on with "Select Portal"
+(Assets/ui/select_new_portal/), or leaves on a task's last repeat.
+
+This replaced the "Click anywhere to close" watch Spirit City and Snowy
+Castle Act 3 used to have.
 
 Drop one or more PNG crops here (any filename ending .png), or save one via
 Settings > General > Image Manager under this exact name. Crop the button's

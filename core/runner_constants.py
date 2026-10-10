@@ -338,41 +338,22 @@ ACT_ORDER = ["1", "2", "3"]
 ACT_CLICK_BASE = (250, 267)  # Act 1's click point
 ACT_ROW_HEIGHT = 129
 
-# Raid Acts that throw a FULL-SCREEN "Click anywhere to close" panel
-# mid-battle. It covers the Victory screen completely, so a run that does
-# not dismiss it sits there until MATCH_RESULT_TIMEOUT instead of ever
-# reading a result -- see runner._click_close_popup_if_found, and
-# _wants_close_popup_watch for the gate these feed.
-#
-# Two known sources, both on Act 3: Spirit City's boss/cutscene intro,
-# which opens at a fixed point in the fight, and Snowy Castle's "Iron
-# Wolf" secret-unit reveal, which is a DROP -- it can land at any moment
-# in the round, including while the result is already being waited for.
-#
-# Gated rather than always-on because it costs one extra image search on
-# every poll tick of every match. Add a map here when its Act 3 turns out
-# to do the same; the text crops shipped under
-# Assets/ui/click_anywhere_to_close/ include the surrounding background,
-# so a new screen usually also wants its own variant crop added there.
-CLOSE_POPUP_RAID_MAPS = ("Spirit City", "Snowy Castle")
-CLOSE_POPUP_RAID_STAGE = "3"
-# How long to let the close-panel react before checking whether it actually
-# went away. Short on purpose: this runs inside the match poll loop, which
-# already waits MATCH_RESULT_POLL_INTERVAL between ticks.
-CLOSE_POPUP_VERIFY_DELAY = 0.45
-
-# The "Skip Cutscene" button of a secret-unit reveal, which some portal rounds
-# drop (runner._click_skip_cutscene_if_found). Not every portal can, and the
-# round can be any portal the offer led to, so a Portals task always watches
-# for it -- a look every this many seconds rather than every poll tick: the
-# reveal waits for the click, and a second or two costs nothing.
+# The "Skip Cutscene" button of a cutscene that covers the round -- a
+# secret-unit reveal once a portal or raid round is won
+# (runner._click_skip_cutscene_if_found). Which portals and raid maps can
+# drop one is not known, and the offer can lead to any portal, so every
+# Portals and Raid task watches for it -- a look every this many seconds
+# rather than every poll tick: the cutscene waits for the click, and a second
+# or two costs nothing. It replaced the "Click anywhere to close" watch
+# Spirit City and Snowy Castle Act 3 had.
 SKIP_CUTSCENE_IMAGE = "skip_cutscene"
 SKIP_CUTSCENE_LOOK_INTERVAL = 2.0
-# Such a round has won, but ends without the three-portal offer: once the
-# reveal is skipped, only a "Game Results" button (GAME_RESULTS_IMAGE) is
-# left, and it opens the Victory screen. It is clicked as soon as it shows --
-# not after GAME_RESULTS_GRACE, which only exists to sit out the offer --
-# looked for on the whole window for this long after the skip.
+# Such a round has won, but ends on neither the three-portal offer nor the
+# Victory screen: once the reveal is skipped, only a "Game Results" button
+# (GAME_RESULTS_IMAGE) is left, and it opens the Victory screen. It is
+# clicked as soon as it shows -- not after GAME_RESULTS_GRACE, which only
+# exists to sit out the offer -- looked for on the whole window for this long
+# after the skip.
 SKIP_CUTSCENE_RESULTS_WINDOW = 30.0
 
 # A won portal round ends on three NEW portals, offered for about 20s. Left
@@ -780,7 +761,7 @@ MATCHMAKING_TELEPORT_TIMEOUT = 300.0
 SOLO_START_RETRY_ATTEMPTS = 3
 SOLO_TELEPORT_PER_ATTEMPT_TIMEOUT = 20.0  # generous per chunk -- a slow teleport shouldn't burn through attempts
 # Solo's Start click never got the treatment every other must-land click in
-# here already has (focus, hover-in, verify -- see _click_close_popup_if_found
+# here already has (focus, hover-in, verify -- see _click_skip_cutscene_if_found
 # and _click_and_verify_gone). It clicked once and then spent a full
 # SOLO_TELEPORT_PER_ATTEMPT_TIMEOUT finding out whether the game had got it,
 # and there are only SOLO_START_RETRY_ATTEMPTS of those. Reported live over
